@@ -1,0 +1,19 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: "Raw tables loaded from ClickHouse by the ingestion script"
+    tables:
+      - name: brand
+        description: "Brand dimension table"
+      - name: cpu_model
+        description: "CPU model dimension table"
+      - name: gpu_model
+        description: "GPU model dimension table"
+      - name: laptop_model
+        description: "Laptop master data with specs and references"
+      - name: laptop_benchmark_result
+        description: "Benchmark test results for laptops"
+      - name: user_event_tracking
+        description: "Clickstream events with JSON payloads"

@@ -1,0 +1,14 @@
+# Ingestion
+clickhouse-connect
+pandas
+pyarrow
+psycopg2-binary
+python-dotenv
+sqlalchemy
+
+# dbt
+dbt-postgres
+
+# Dashboard
+streamlit
+plotly

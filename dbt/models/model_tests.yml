@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  # ── Silver tests ──────────────────────────────────────────────
+  - name: silver_brand
+    columns:
+      - name: brand_id
+        tests:
+          - unique
+          - not_null
+
+  - name: silver_cpu_model
+    columns:
+      - name: cpu_id
+        tests:
+          - unique
+          - not_null
+
+  - name: silver_gpu_model
+    columns:
+      - name: gpu_id
+        tests:
+          - unique
+          - not_null
+
+  - name: silver_laptop_model
+    columns:
+      - name: laptop_model_id
+        tests:
+          - unique
+          - not_null
+      - name: brand_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('silver_brand')
+              field: brand_id
+
+  - name: silver_laptop_benchmark_result
+    columns:
+      - name: benchmark_id
+        tests:
+          - unique
+          - not_null
+      - name: laptop_model_id
+        tests:
+          - not_null
+
+  - name: silver_user_event_tracking
+    columns:
+      - name: session_id
+        tests:
+          - not_null
+
+  # ── Gold tests ────────────────────────────────────────────────
+  - name: mart_brand_interest
+    columns:
+      - name: brand_id
+        tests:
+          - unique
+          - not_null
+
+  - name: mart_performance_ranking
+    columns:
+      - name: laptop_model_id
+        tests:
+          - unique
+          - not_null
