@@ -180,6 +180,13 @@ def load_to_postgres(
         return
 
     logger.info(f"Loading {len(df):,} rows into {RAW_SCHEMA}.{table_name}...")
+    
+    # Custom replace logic to handle dependent dbt views
+    if if_exists == "replace":
+        with engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE IF EXISTS {RAW_SCHEMA}.{table_name} CASCADE"))
+        if_exists = "append"
+
     df.to_sql(
         name=table_name,
         con=engine,
