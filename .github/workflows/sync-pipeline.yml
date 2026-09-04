@@ -2,9 +2,9 @@ name: "LaplapTech Pipeline — Sync & Transform"
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   schedule:
-    # 02:00 UTC = 09:00 Vietnam time (testing schedule trigger)
+    # 01:00 UTC = 08:00 Vietnam time (buffer for GitHub free-tier delay)
     - cron: "0 2 * * *"
   workflow_dispatch:
 
