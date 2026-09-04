@@ -4,8 +4,10 @@ on:
   push:
     branches: [main, develop]
   schedule:
-    # 01:00 UTC = 08:00 Vietnam time (buffer for GitHub free-tier delay)
-    - cron: "0 1 * * *"
+    # 01:15 UTC = 08:15 Vietnam time (Tránh nghẽn mạng đầu giờ)
+    - cron: "15 1 * * *"
+    # 09:45 UTC = 16:45 Vietnam time
+    - cron: "45 9 * * *"
   workflow_dispatch:
 
 env:
