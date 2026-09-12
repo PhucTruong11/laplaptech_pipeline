@@ -12,3 +12,6 @@ dbt-postgres
 # Dashboard
 streamlit
 plotly
+streamlit-antd-components
+streamlit-aggrid
+streamlit-lottie
