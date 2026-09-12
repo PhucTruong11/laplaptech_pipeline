@@ -19,7 +19,6 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 st.set_page_config(
     page_title="LaplapTech | Executive Dashboard",
-    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -35,10 +34,10 @@ st.markdown("""
         font-family: 'Inter', sans-serif !important;
     }
     
-    /* Page background = soft gray */
+    /* Page background = dark gray */
     .stApp {
-        background-color: #f0f2f5 !important;
-        color: #0f172a;
+        background-color: #111217 !important;
+        color: #e2e8f0;
     }
     
     .dashboard-header {
@@ -46,72 +45,71 @@ st.markdown("""
         margin-bottom: 25px;
     }
     .dashboard-header h1 {
-        color: #0f172a !important;
+        color: #e2e8f0 !important;
         font-size: 2rem !important;
         font-weight: 700 !important;
         letter-spacing: -0.5px;
         margin-bottom: 4px;
     }
     .dashboard-header p {
-        color: #64748b;
+        color: #94a3b8;
         font-size: 0.95rem;
         margin: 0;
     }
     
     .section-title {
-        color: #1e293b;
+        color: #e2e8f0;
         font-size: 1.1rem;
         font-weight: 600;
         margin-bottom: 12px;
         padding-left: 5px;
     }
     
-    /* KPI Cards = white on gray page */
+    /* KPI Cards = dark gray card */
     div[data-testid="stMetric"] {
-        background-color: #ffffff !important;
-        border-radius: 12px !important;
+        background-color: #1a1c23 !important;
+        border-radius: 8px !important;
         padding: 20px 24px !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
-        border: 1px solid #e5e7eb;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5) !important;
+        border: 1px solid #2d3139;
         transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
     div[data-testid="stMetric"]:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.08) !important;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5) !important;
     }
     
     div[data-testid="stMetricLabel"] {
-        color: #475569 !important;
+        color: #94a3b8 !important;
         font-size: 0.9rem !important;
         font-weight: 600 !important;
     }
     div[data-testid="stMetricValue"] {
-        color: #0f172a !important;
+        color: #e2e8f0 !important;
         font-size: 2.2rem !important;
         font-weight: 700 !important;
         line-height: 1.2 !important;
     }
     div[data-testid="stMetricDelta"] {
-        color: #10b981 !important;
         font-weight: 600 !important;
         font-size: 0.85rem !important;
     }
     
-    /* Chart wrappers = white */
+    /* Chart wrappers */
     .stPlotlyChart, iframe[title="st.plotly_chart"] {
-        background-color: #ffffff !important;
-        border-radius: 12px !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
-        border: 1px solid #e5e7eb;
+        background-color: #1a1c23 !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5) !important;
+        border: 1px solid #2d3139;
         padding: 12px;
     }
     
-    /* Data Table = white */
+    /* Data Table */
     [data-testid="stDataFrame"] {
-        background-color: #ffffff;
-        border-radius: 12px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-        border: 1px solid #e5e7eb;
+        background-color: #1a1c23;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+        border: 1px solid #2d3139;
         padding: 12px;
     }
     
@@ -127,15 +125,15 @@ st.markdown("""
         max-width: 100% !important;
     }
     
-    /* Top Bar = white */
+    /* Top Bar */
     .top-bar-container {
-        background-color: #ffffff;
+        background-color: #1a1c23;
         padding: 12px 24px;
-        border-radius: 12px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        border-radius: 8px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
         margin-top: 10px;
         margin-bottom: 20px;
-        border: 1px solid #e5e7eb;
+        border: 1px solid #2d3139;
     }
     
     /* Hide sidebar toggle */
@@ -153,17 +151,17 @@ st.markdown("""
         cursor: pointer !important;
         font-weight: 600 !important;
         font-size: 0.95rem !important;
-        color: #64748b !important;
+        color: #94a3b8 !important;
         transition: all 0.15s ease !important;
     }
     div[data-testid="stRadio"] label:hover {
-        color: #3b82f6 !important;
-        background-color: #eff6ff !important;
+        color: #e2e8f0 !important;
+        background-color: #2d3139 !important;
     }
     div[data-testid="stRadio"] label[data-checked="true"],
     div[data-testid="stRadio"] label:has(input:checked) {
-        background-color: #eff6ff !important;
-        color: #2563eb !important;
+        background-color: #2b5c8f !important;
+        color: #ffffff !important;
     }
     /* Hide the radio circle itself */
     div[data-testid="stRadio"] label span[data-testid="stMarkdownContainer"] {
@@ -209,17 +207,17 @@ def safe_query(sql: str, fallback_msg: str = "No data") -> pd.DataFrame:
 # Plotly Theme – white bg to match card containers
 # ---------------------------------------------------------------------------
 pio_template = go.layout.Template()
-pio_template.layout.plot_bgcolor = '#ffffff'
-pio_template.layout.paper_bgcolor = '#ffffff'
-pio_template.layout.font.color = '#475569'
+pio_template.layout.plot_bgcolor = 'rgba(0,0,0,0)'
+pio_template.layout.paper_bgcolor = 'rgba(0,0,0,0)'
+pio_template.layout.font.color = '#94a3b8'
 pio_template.layout.font.family = 'Inter, sans-serif'
 pio_template.layout.font.size = 12
-pio_template.layout.xaxis.gridcolor = '#f1f5f9'
-pio_template.layout.yaxis.gridcolor = '#f1f5f9'
-pio_template.layout.xaxis.zerolinecolor = '#e2e8f0'
-pio_template.layout.yaxis.zerolinecolor = '#e2e8f0'
+pio_template.layout.xaxis.gridcolor = '#2d3139'
+pio_template.layout.yaxis.gridcolor = '#2d3139'
+pio_template.layout.xaxis.zerolinecolor = '#475569'
+pio_template.layout.yaxis.zerolinecolor = '#475569'
 pio_template.layout.margin = dict(l=50, r=30, t=30, b=50)
-pio_template.layout.colorway = ['#2563eb', '#16a34a', '#dc2626', '#ea580c', '#9333ea', '#0891b2', '#ca8a04']
+pio_template.layout.colorway = ['#5392b5', '#60a373', '#d97d54', '#b86370', '#83b354', '#a980b3', '#c9c25d']
 
 # ---------------------------------------------------------------------------
 # Top Navigation & Filters (Pill-style, no radio circles)
@@ -258,12 +256,18 @@ if active_tab == "Overview":
     """, unsafe_allow_html=True)
     
     kpi_df = safe_query("""
+        WITH recent_dates AS (
+            SELECT MAX(event_date) as max_date FROM public_gold.mart_daily_site_kpis
+        )
         SELECT 
-            SUM(total_sessions) as total_sessions, 
-            SUM(total_events) as total_events,
-            SUM(sessions_with_detail_view) as detail_views,
-            SUM(sessions_with_comparison) as comparisons
-        FROM public_gold.mart_daily_site_kpis
+            (SELECT total_sessions FROM public_gold.mart_daily_site_kpis WHERE event_date = (SELECT max_date FROM recent_dates)) as today_sessions,
+            (SELECT SUM(total_sessions) FROM public_gold.mart_daily_site_kpis WHERE event_date > (SELECT max_date - interval '7 days' FROM recent_dates) AND event_date <= (SELECT max_date FROM recent_dates)) as week_sessions,
+            
+            (SELECT sessions_with_detail_view FROM public_gold.mart_daily_site_kpis WHERE event_date = (SELECT max_date FROM recent_dates)) as today_details,
+            (SELECT SUM(sessions_with_detail_view) FROM public_gold.mart_daily_site_kpis WHERE event_date > (SELECT max_date - interval '7 days' FROM recent_dates) AND event_date <= (SELECT max_date FROM recent_dates)) as week_details,
+            
+            (SELECT sessions_with_comparison FROM public_gold.mart_daily_site_kpis WHERE event_date = (SELECT max_date FROM recent_dates)) as today_comps,
+            (SELECT SUM(sessions_with_comparison) FROM public_gold.mart_daily_site_kpis WHERE event_date > (SELECT max_date - interval '7 days' FROM recent_dates) AND event_date <= (SELECT max_date FROM recent_dates)) as week_comps
     """)
     
     battery_kpi = safe_query("""
@@ -275,11 +279,26 @@ if active_tab == "Overview":
 
     if not kpi_df.empty:
         row = kpi_df.iloc[0]
+        t_sess = int(row.get('today_sessions') or 0)
+        w_sess = int(row.get('week_sessions') or 0) / 7.0
+        d_sess = t_sess - w_sess
+        p_sess = f"{d_sess/w_sess * 100:+.1f}% vs 7-day avg" if w_sess > 0 else "+0%"
+
+        t_det = int(row.get('today_details') or 0)
+        w_det = int(row.get('week_details') or 0) / 7.0
+        d_det = t_det - w_det
+        p_det = f"{d_det/w_det * 100:+.1f}% vs 7-day avg" if w_det > 0 else "+0%"
+
+        t_comp = int(row.get('today_comps') or 0)
+        w_comp = int(row.get('week_comps') or 0) / 7.0
+        d_comp = t_comp - w_comp
+        p_comp = f"{d_comp/w_comp * 100:+.1f}% vs 7-day avg" if w_comp > 0 else "+0%"
+
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric(label="Total Sessions", value=f"{int(row.get('total_sessions', 0)):,}", delta="^ 5.8%")
-        c2.metric(label="Detail Views", value=f"{int(row.get('detail_views', 0)):,}", delta="^ 12.4%")
-        c3.metric(label="Comparisons", value=f"{int(row.get('comparisons', 0)):,}", delta="^ 8.1%")
-        c4.metric(label="Avg Battery Life", value=f"{avg_battery} hrs", delta="^ 1.2 hrs")
+        c1.metric(label="Today's Sessions", value=f"{t_sess:,}", delta=p_sess)
+        c2.metric(label="Today's Detail Views", value=f"{t_det:,}", delta=p_det)
+        c3.metric(label="Today's Comparisons", value=f"{t_comp:,}", delta=p_comp)
+        c4.metric(label="Avg Battery Life (All)", value=f"{avg_battery} hrs", delta="-")
     
     st.write("")
 
@@ -296,9 +315,9 @@ if active_tab == "Overview":
         if not trend_df.empty:
             fig_trend = px.line(trend_df, x="month", y="views", markers=True)
             fig_trend.update_traces(
-                line=dict(color='#16a34a', width=3),
-                marker=dict(size=7, color='#16a34a'),
-                fill='tozeroy', fillcolor='rgba(22, 163, 74, 0.08)'
+                line=dict(color='#5392b5', width=3),
+                marker=dict(size=7, color='#5392b5'),
+                fill='tozeroy', fillcolor='rgba(83, 146, 181, 0.15)'
             )
             fig_trend.update_layout(
                 template=pio_template, height=400,
@@ -317,7 +336,7 @@ if active_tab == "Overview":
         if not brand_df.empty:
             fig_brand = px.bar(brand_df, x="brand_name", y="total_views", text_auto=".2s")
             fig_brand.update_traces(
-                marker_color='#2563eb', marker_line_width=0, width=0.6,
+                marker_color='#5392b5', marker_line_width=0, width=0.6,
                 textfont=dict(color='#ffffff', size=11, family='Inter', weight='bold'),
                 textposition='inside'
             )
@@ -339,7 +358,7 @@ if active_tab == "Overview":
             fig_donut = px.pie(brand_df.head(5), values='total_views', names='brand_name', hole=0.45)
             fig_donut.update_traces(
                 textposition='none',
-                marker=dict(colors=['#2563eb', '#16a34a', '#dc2626', '#ea580c', '#9333ea'])
+                marker=dict(colors=['#5392b5', '#60a373', '#d97d54', '#b86370', '#83b354'])
             )
             fig_donut.update_layout(
                 template=pio_template, height=360,
@@ -462,11 +481,11 @@ elif active_tab == "Performance Heatmap":
             texttemplate="%{text}",
             textfont=dict(size=13, color='#ffffff', family='Inter'),
             colorscale=[
-                [0, '#dbeafe'],
-                [0.25, '#93c5fd'],
-                [0.5, '#3b82f6'],
-                [0.75, '#1d4ed8'],
-                [1, '#1e3a5f']
+                [0, '#111217'],
+                [0.25, '#1a1c23'],
+                [0.5, '#2b5c8f'],
+                [0.75, '#5392b5'],
+                [1, '#8fbbd3']
             ],
             showscale=True,
             colorbar=dict(title="Score", thickness=15, len=0.6),
@@ -475,8 +494,8 @@ elif active_tab == "Performance Heatmap":
         
         fig_heat.update_layout(
             template=pio_template, height=500,
-            xaxis=dict(side='top', tickfont=dict(size=13, color='#334155')),
-            yaxis=dict(autorange='reversed', tickfont=dict(size=13, color='#334155')),
+            xaxis=dict(side='top', tickfont=dict(size=13, color='#e2e8f0')),
+            yaxis=dict(autorange='reversed', tickfont=dict(size=13, color='#e2e8f0')),
             margin=dict(l=120, r=40, t=50, b=30)
         )
         st.plotly_chart(fig_heat, theme=None, use_container_width=True, config={'displayModeBar': False})
@@ -488,13 +507,13 @@ elif active_tab == "Performance Heatmap":
         fig_compare = go.Figure()
         fig_compare.add_trace(go.Bar(
             name='Total Views', x=heatmap_df['brand_name'], y=heatmap_df['total_views'],
-            marker_color='#2563eb', text=heatmap_df['total_views'].apply(lambda x: f"{x:,.0f}"),
-            textposition='outside', textfont=dict(size=10)
+            marker_color='#5392b5', text=heatmap_df['total_views'].apply(lambda x: f"{x:,.0f}"),
+            textposition='outside', textfont=dict(size=10, color='#e2e8f0')
         ))
         fig_compare.add_trace(go.Bar(
             name='Avg Battery (h)', x=heatmap_df['brand_name'], y=heatmap_df['avg_battery'],
-            marker_color='#16a34a', yaxis='y2', text=heatmap_df['avg_battery'].apply(lambda x: f"{x:.1f}h"),
-            textposition='outside', textfont=dict(size=10)
+            marker_color='#60a373', yaxis='y2', text=heatmap_df['avg_battery'].apply(lambda x: f"{x:.1f}h"),
+            textposition='outside', textfont=dict(size=10, color='#e2e8f0')
         ))
         fig_compare.update_layout(
             template=pio_template, height=400, barmode='group',
