@@ -1,7 +1,5 @@
 # LaplapTech Analytics Pipeline 🚀
 
-[![Sync Pipeline](https://github.com/YOUR_USERNAME/laplaptech_pipeline/actions/workflows/sync-pipeline.yml/badge.svg)](https://github.com/YOUR_USERNAME/laplaptech_pipeline/actions/workflows/sync-pipeline.yml)
-
 > 💡 **Tóm tắt dự án:** Đây là một hệ thống Data Pipeline hoàn chỉnh (End-to-End) mô phỏng quy trình xử lý dữ liệu của các doanh nghiệp thực tế. Dự án tự động kéo dữ liệu từ nguồn, làm sạch, chuyển đổi và xây dựng Dashboard trực quan phục vụ cho việc ra quyết định.
 
 ---
