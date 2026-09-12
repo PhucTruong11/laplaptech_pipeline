@@ -30,6 +30,9 @@ dbt/logs/
 # Streamlit
 streamlit_app/.streamlit/secrets.toml
 
+# Scratch / temp files
+scratch/
+
 # Data files
 *.csv
 *.parquet
