@@ -114,9 +114,7 @@ Tầng này dành cho End-users (CEO, Manager, Data Analyst) tiêu thụ dữ li
 - **Machine Learning:** Đưa bảng Gold cho Data Scientist train mô hình (Dự đoán doanh thu, Churn rate).
 
 ### Công nghệ (Tech Stack) & Lựa chọn thay thế:
-- **Self-service BI:** **Power BI** (Mạnh về DAX, sinh thái Microsoft), **Tableau** (Đẹp, kéo thả mượt), **Looker** (Quản trị semantic layer mạnh).
-- **Open-source BI:** **Apache Superset**, **Metabase** (Dễ setup nhanh cho startup).
-- **Data Apps (Code):** **Streamlit**, **Dash**, **Gradio** (Như ta vừa làm, phù hợp cho custom app hoặc app có chứa ML model).
+- **Data Apps (Code):** **Streamlit**, **Dash**, **Gradio** (Dự án này sử dụng hoàn toàn Streamlit làm Data App thay thế cho các giải pháp BI truyền thống).
 - **Reverse ETL:** **Hightouch**, **Census**.
 
 ---
@@ -142,14 +140,14 @@ sequenceDiagram
     participant Ingestion as Airbyte/Fivetran
     participant Warehouse as Snowflake/BigQuery
     participant Transform as dbt
-    participant BI as Tableau/PowerBI
+    participant App as Streamlit
 
     Airflow->>Ingestion: 02:00 AM - Bắt đầu kéo data
     Ingestion-->>Warehouse: Load xong Raw data
     Airflow->>Transform: Kích hoạt lệnh chạy dbt
     Transform-->>Warehouse: Xử lý xong Bronze -> Silver -> Gold
     Transform->>Transform: Chạy dbt tests (Check chất lượng)
-    Airflow->>BI: Bắn API Refresh lại Dashboard
+    Airflow->>App: Dữ liệu mới sẵn sàng lên Dashboard
 ```
 
 ---
