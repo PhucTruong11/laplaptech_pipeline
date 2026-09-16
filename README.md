@@ -31,7 +31,6 @@ flowchart TD
 
     subgraph Presentation ["📊 Hiển thị (Data Visualization)"]
         ST["Streamlit Dashboard<br>Local: 8501"]
-        PBI["Power BI / Tableau<br>(Tùy chọn kết nối)"]
     end
 
     %% Mũi tên luồng dữ liệu
@@ -42,7 +41,6 @@ flowchart TD
     DBT -- "Transform: SQL Cleaning" --> SILVER
     DBT -- "Transform: Tổng hợp KPIs" --> GOLD
     GOLD -- "Truy vấn SQL" --> ST
-    GOLD -. "Kết nối trực tiếp DB" .-> PBI
     GHA -. "Lên lịch hằng ngày (09:00)" .-> PY
     GHA -. "Trigger lệnh build" .-> DBT
 
@@ -52,7 +50,6 @@ flowchart TD
     style PG fill:#0ea5e9,stroke:#fff,color:#fff
     style DBT fill:#f43f5e,stroke:#fff,color:#fff
     style ST fill:#ef4444,stroke:#fff,color:#fff
-    style PBI fill:#eab308,stroke:#fff,color:#000
     style GHA fill:#18181b,stroke:#fff,color:#fff
 ```
 
@@ -120,7 +117,7 @@ flowchart TD
     Plotly --> UI["Giao diện Web<br>(Glassmorphism CSS)"]
 ```
 
-- **Công nghệ đang dùng:** **Streamlit & Plotly** (Dashboard Web) / Hỗ trợ kết nối **Power BI**.
+- **Công nghệ đang dùng:** **Streamlit & Plotly** (Dashboard Web).
 - **Cách hoạt động:** Kết nối trực tiếp vào schema `public_gold` của PostgreSQL để vẽ biểu đồ tương tác cực mượt mà không cần xử lý tính toán gì thêm ở front-end.
 - **Có thể thay thế bằng:** **Tableau**, **Metabase**, **Apache Superset**.
 
