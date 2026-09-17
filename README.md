@@ -132,9 +132,9 @@ flowchart TD
 
 ### 🎯 Khả năng ứng dụng hiện tại
 Dựa vào 10 bảng Gold, hệ thống hiện tại đang trả lời 3 câu hỏi kinh doanh cốt lõi:
-1. **Brand Analysis:** Brand nào đang dẫn đầu thị phần quan tâm? Khách hàng hay so sánh hãng A với hãng B nào?
+1. **Brand & Product Analytics:** Brand nào đang dẫn đầu thị phần quan tâm? Hành vi tìm kiếm nào đang là khoảng trống thị trường (Product Gap)?
 2. **Hardware Trends:** Xu hướng tìm kiếm CPU/GPU thay đổi thế nào qua các tháng?
-3. **Performance Metrics:** Phân khúc Laptop nào có hiệu năng/giá tiền hoặc thời lượng pin tốt nhất, và điều đó tác động thế nào đến lượt xem?
+3. **Performance & Efficiency:** Phân tích Ma trận hiệu năng (The Efficiency Matrix) - Hiệu năng trên cân nặng (Tính di động), và mức độ sụt giảm sức mạnh khi dùng pin.
 
 ### 📈 Định hướng nâng cấp (Scalability)
 Nếu đưa hệ thống này lên môi trường Production thực tế, có thể áp dụng các bước:

@@ -387,9 +387,9 @@ with top_c1:
 with top_c2:
     active_tab = sac.segmented(
         items=[
-            sac.SegmentedItem(label="Overview", icon="grid-fill"),
-            sac.SegmentedItem(label="Hardware Metrics", icon="cpu-fill"),
-            sac.SegmentedItem(label="Performance Heatmap", icon="fire"),
+            sac.SegmentedItem(label="Overview & Market", icon="grid-fill"),
+            sac.SegmentedItem(label="Performance & Efficiency", icon="lightning-charge-fill"),
+            sac.SegmentedItem(label="User Behavior & Product Gap", icon="people-fill"),
             sac.SegmentedItem(label="Product Catalog", icon="laptop-fill"),
         ],
         align="end",
@@ -407,7 +407,7 @@ st.markdown("<div style='margin-bottom: 18px;'></div>", unsafe_allow_html=True)
 # ===========================================================================
 # VIEW 1: Overview
 # ===========================================================================
-if active_tab == "Overview":
+if active_tab == "Overview & Market":
     head_col1, head_col2 = st.columns([3, 1.3], vertical_alignment="center")
     with head_col1:
         st.markdown("""
@@ -631,10 +631,7 @@ if active_tab == "Overview":
                 key="top_laptops_grid"
             )
 
-# ===========================================================================
-# VIEW 2: Hardware Metrics
-# ===========================================================================
-elif active_tab == "Hardware Metrics":
+    st.markdown("<hr style='border-color: #262a33; margin: 40px 0;'>", unsafe_allow_html=True)
     st.markdown("""
         <div class='dashboard-header'>
             <h1>Hardware Telemetry</h1>
@@ -703,9 +700,9 @@ elif active_tab == "Hardware Metrics":
             st.plotly_chart(fig_gpu, theme=None, use_container_width=True, config={'displayModeBar': False})
 
 # ===========================================================================
-# VIEW 3: Performance Heatmap
+# VIEW 2: Performance & Efficiency
 # ===========================================================================
-elif active_tab == "Performance Heatmap":
+elif active_tab == "Performance & Efficiency":
     st.markdown("""
         <div class='dashboard-header'>
             <h1>Performance Heatmap</h1>
@@ -905,6 +902,79 @@ elif active_tab == "Performance Heatmap":
                 xaxis_title=""
             )
             st.plotly_chart(fig_compare, theme=None, use_container_width=True, config={'displayModeBar': False})
+
+        # === NEW: EFFICIENCY MATRIX ===
+        st.markdown("<hr style='border-color: #262a33; margin: 40px 0;'>", unsafe_allow_html=True)
+        st.markdown("<div class='section-title'>The Efficiency Matrix</div>", unsafe_allow_html=True)
+        
+        eff_df = safe_query("""
+            SELECT laptop_name, brand_name, 
+                   performance_per_wh, performance_per_kg, 
+                   battery_capacity_whr, office_battery_hours,
+                   performance_drop_pct
+            FROM public_gold.mart_performance_efficiency
+        """)
+        if not eff_df.empty:
+            e_c1, e_c2 = st.columns(2)
+            with e_c1:
+                st.markdown("<p style='color: #94a3b8; font-size: 0.82rem; font-weight: 600; text-transform: uppercase;'>Performance per kg vs Battery Life</p>", unsafe_allow_html=True)
+                fig_scatter = px.scatter(
+                    eff_df, x="office_battery_hours", y="performance_per_kg", 
+                    color="brand_name", hover_name="laptop_name",
+                    size="battery_capacity_whr",
+                    color_discrete_sequence=px.colors.qualitative.Pastel
+                )
+                apply_dark_theme(fig_scatter, height=400)
+                fig_scatter.update_layout(
+                    xaxis_title="Battery Life (Hours)", 
+                    yaxis_title="Performance per Kg",
+                    margin=dict(l=60, r=20, t=25, b=60)
+                )
+                st.plotly_chart(fig_scatter, theme=None, use_container_width=True, config={'displayModeBar': False})
+            with e_c2:
+                st.markdown("<p style='color: #94a3b8; font-size: 0.82rem; font-weight: 600; text-transform: uppercase;'>Top 10 Lowest Performance Drop on Battery</p>", unsafe_allow_html=True)
+                drop_df = eff_df.dropna(subset=['performance_drop_pct']).sort_values('performance_drop_pct').head(10)
+                drop_df['laptop_name_short'] = drop_df['laptop_name'].apply(lambda x: (str(x)[:22] + '...') if len(str(x)) > 22 else str(x))
+                fig_drop = px.bar(drop_df, x="performance_drop_pct", y="laptop_name_short", orientation='h', color="brand_name")
+                if len(drop_df) <= 2:
+                    fig_drop.update_traces(width=0.4)
+                apply_dark_theme(fig_drop, height=400)
+                fig_drop.update_layout(
+                    xaxis_title="Performance Drop (%)", 
+                    yaxis_title="", 
+                    yaxis=dict(autorange="reversed", automargin=True, tickfont=dict(size=11)),
+                    margin=dict(l=140, r=20, t=25, b=60)
+                )
+                st.plotly_chart(fig_drop, theme=None, use_container_width=True, config={'displayModeBar': False})
+
+# ===========================================================================
+# VIEW 3: User Behavior & Product Gap
+# ===========================================================================
+elif active_tab == "User Behavior & Product Gap":
+    st.markdown("""
+        <div class='dashboard-header'>
+            <h1>User Behavior & Product Gap</h1>
+            <p>Analysis of search queries to identify unmet user demands (Zero-Result potential).</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    gap_df = safe_query("""
+        SELECT search_keyword, search_volume, unique_sessions
+        FROM public_gold.mart_search_analytics
+        LIMIT 25
+    """)
+    if not gap_df.empty:
+        st.markdown("<div class='section-title'>Top Search Queries (Product Gaps)</div>", unsafe_allow_html=True)
+        fig_gap = px.bar(gap_df, x="search_keyword", y="search_volume", text_auto=".2s")
+        fig_gap.update_traces(marker_color='#ef4444', textfont=dict(color='#ffffff', size=11))
+        apply_dark_theme(fig_gap, height=450)
+        fig_gap.update_layout(
+            xaxis_title="", 
+            yaxis_title="Search Volume",
+            xaxis=dict(tickangle=-45, automargin=True),
+            margin=dict(l=50, r=20, t=25, b=100)
+        )
+        st.plotly_chart(fig_gap, theme=None, use_container_width=True, config={'displayModeBar': False})
 
 # ===========================================================================
 # VIEW 4: Product Catalog
