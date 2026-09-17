@@ -22,7 +22,7 @@ flowchart TD
     end
 
     subgraph Storage ["🗄️ Kho lưu trữ nội bộ (Data Warehouse)"]
-        PG[("PostgreSQL<br>Local: 5432")]
+        PG[("PostgreSQL<br>Supabase / Local")]
         RAW["Schema: raw"]
         BRONZE["Schema: public_bronze<br>(Dữ liệu thô)"]
         SILVER["Schema: public_silver<br>(Làm sạch & Bóc tách)"]
@@ -80,7 +80,7 @@ sequenceDiagram
 - **Có thể thay thế bằng:** **Airbyte**, **Fivetran** (giải pháp SaaS tự động kéo data), hoặc **Kafka** (nếu cần stream data theo thời gian thực thay vì batch).
 
 ### 2.2. Kho lưu trữ (Data Warehouse)
-- **Công nghệ đang dùng:** **PostgreSQL**. Chạy nội bộ ở Local (Port 5432).
+- **Công nghệ đang dùng:** **PostgreSQL (Supabase)**. Sử dụng Supabase làm Data Warehouse trên Cloud (hoặc chạy Local).
 - **Cách hoạt động:** Là trái tim của hệ thống, chứa toàn bộ dữ liệu từ dạng Thô (Raw) đến dạng Tinh chế (Gold).
 - **Có thể thay thế bằng:** **Google BigQuery**, **Snowflake**, **Amazon Redshift** (chuẩn Data Warehouse cho doanh nghiệp cực lớn).
 
@@ -139,7 +139,7 @@ Dựa vào 10 bảng Gold, hệ thống hiện tại đang trả lời 3 câu h�
 ### 📈 Định hướng nâng cấp (Scalability)
 Nếu đưa hệ thống này lên môi trường Production thực tế, có thể áp dụng các bước:
 1. **Containerization (Đóng gói):** Bọc Python Ingestion, dbt và Streamlit vào các **Docker Image** và chạy qua `docker-compose`.
-2. **Cloud Migration:** Chuyển PostgreSQL lên **AWS RDS** hoặc **Google Cloud SQL** để tăng tính bảo mật và dễ backup. Đẩy Streamlit lên **Cloud Run**.
+2. **Cloud Migration:** Dự án đang tích hợp sẵn **Supabase** (PostgreSQL trên Cloud) rất tối ưu chi phí. Ở quy mô Enterprise, có thể đổi sang **AWS RDS** hoặc **Google Cloud SQL**. Đẩy Streamlit lên **Render** hoặc **Cloud Run**.
 3. **Data Quality & Alerting:** Cấu hình dbt tests sâu hơn để bắt lỗi dữ liệu hỏng, tích hợp bắn cảnh báo tự động về Slack/Telegram qua Airflow mỗi khi pipeline fail.
 
 ---
