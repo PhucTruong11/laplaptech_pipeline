@@ -12,6 +12,7 @@ SELECT
     -- Geekbench scores
     geekbench_6_cpu_single_core_plugged_in::int AS geekbench6_single,
     geekbench_6_cpu_multi_core_plugged_in::int  AS geekbench6_multi,
+    geekbench_6_cpu_multi_core_battery::int     AS geekbench6_multi_battery,
 
     -- Derived: hours for readability
     ROUND(office_battery_result_minutes::numeric / 60.0, 1)
