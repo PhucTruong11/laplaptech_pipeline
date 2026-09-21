@@ -62,7 +62,7 @@ Dữ liệu đem về phải có chỗ chứa. Chọn sai kiến trúc ở đây
 3. **Data Lakehouse:** Xu hướng mới nhất, kết hợp chi phí rẻ của Data Lake và khả năng truy vấn nhanh của Data Warehouse (dùng định dạng mở như Iceberg, Delta Lake).
 
 ### Công nghệ (Tech Stack) & Lựa chọn thay thế:
-- **Quy mô nhỏ (GBs):** **PostgreSQL**, **MySQL** (Tuy là OLTP nhưng vẫn gánh tốt data nhỏ).
+- **Quy mô nhỏ (GBs):** **PostgreSQL (Supabase)**, **MySQL** (Tuy là OLTP nhưng gánh tốt data nhỏ, Supabase cung cấp Postgres serverless rất tiện lợi cho Data Platform mini).
 - **Data Warehouse (Đám mây - TBs):** **Google BigQuery** (Dễ dùng, tính tiền theo query), **Snowflake** (Mạnh mẽ, kiến trúc tách biệt storage & compute), **Amazon Redshift**.
 - **Data Lake (Chi phí rẻ):** **AWS S3**, **Google Cloud Storage (GCS)**, **Azure Data Lake Storage (ADLS)**.
 - **Lakehouse Formats:** **Apache Iceberg**, **Delta Lake**, **Apache Hudi**.
@@ -166,7 +166,7 @@ Chi phí cao, cần đội ngũ kỹ sư mạnh, xử lý Petabyte dữ liệu, 
 
 ### 3. Startup Zero-Budget (Giống dự án LaplapTech)
 Xài đồ mã nguồn mở cài trên máy local hoặc 1 server nhỏ, chi phí = 0đ (ngoại trừ tiền điện/máy chủ rẻ).
-- **Nguồn -> Python Script -> PostgreSQL -> dbt Core -> Streamlit.**
+- **Nguồn -> Python Script -> PostgreSQL (Supabase) -> dbt Core -> Streamlit.**
 - **Điều phối bằng:** GitHub Actions / Cron Linux.
 
 ---
