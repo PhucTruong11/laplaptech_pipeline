@@ -991,7 +991,12 @@ elif active_tab == "Product Catalog":
     with cat_h2:
         brands_data = safe_query("SELECT DISTINCT brand_name FROM public_gold.mart_brand_interest ORDER BY brand_name")
         brand_options = ["All Brands"] + (brands_data["brand_name"].tolist() if not brands_data.empty else [])
-        selected_brand = st.selectbox("Filter Brand", brand_options, index=0, label_visibility="collapsed")
+        
+        search_col1, search_col2 = st.columns(2)
+        with search_col1:
+            search_query = st.text_input("Search", "", placeholder="Search model...", label_visibility="collapsed")
+        with search_col2:
+            selected_brand = st.selectbox("Filter Brand", brand_options, index=0, label_visibility="collapsed")
     
     st.write("")
     
@@ -1009,6 +1014,8 @@ elif active_tab == "Product Catalog":
     if not catalog_df.empty:
         if selected_brand != "All Brands":
             catalog_df = catalog_df[catalog_df["brand_name"] == selected_brand]
+        if search_query:
+            catalog_df = catalog_df[catalog_df["laptop_name"].str.contains(search_query, case=False, na=False)]
         
         gob = GridOptionsBuilder.from_dataframe(catalog_df)
         gob.configure_pagination(paginationAutoPageSize=False, paginationPageSize=15)
