@@ -1,0 +1,29 @@
+version: 2
+
+exposures:
+  - name: laplaptech_analytics_dashboard
+    label: "LapLapTech Streamlit Analytics Dashboard"
+    type: dashboard
+    maturity: high
+    url: https://github.com/PhucTruong11/laplaptech_pipeline
+    description: >
+      Dashboard Streamlit phục vụ theo dõi hành vi người dùng, 
+      hiệu năng phần cứng và phân tích nhu cầu thị trường laptop.
+
+    depends_on:
+      - ref('mart_brand_interest')
+      - ref('mart_performance_ranking')
+      - ref('mart_daily_site_kpis')
+      - ref('mart_behavior_funnel_daily')
+      - ref('mart_brand_comparison')
+      - ref('mart_cpu_trend')
+      - ref('mart_gpu_trend')
+      - ref('mart_spec_popularity')
+      - ref('mart_battery_vs_interest')
+      - ref('mart_performance_efficiency')
+      - ref('mart_user_os')
+      - ref('mart_search_analytics')
+
+    owner:
+      name: Phuc Truong
+      email: truongtrongphuc584@gmail.com

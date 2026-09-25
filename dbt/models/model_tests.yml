@@ -29,6 +29,7 @@ models:
         tests:
           - unique
           - not_null
+       # relationships
       - name: brand_id
         tests:
           - not_null
@@ -36,6 +37,29 @@ models:
               arguments:
                 to: ref('silver_brand')
                 field: brand_id
+      - name: cpu_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('silver_cpu_model')
+                field: cpu_id
+      - name: gpu_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('silver_gpu_model')
+                field: gpu_id
+      # accepted values cho cờ trạng thái
+      - name: is_visible
+        tests:
+          - accepted_values:
+              arguments:
+                values: [true, false]
+      - name: is_active
+        tests:
+          - accepted_values:
+              arguments:
+                values: [true, false]
 
   - name: silver_laptop_benchmark_result
     columns:
@@ -46,10 +70,17 @@ models:
       - name: laptop_model_id
         tests:
           - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_laptop_model')
+                field: laptop_model_id    
 
   - name: silver_user_event_tracking
     columns:
       - name: session_id
+        tests:
+          - not_null
+      - name: event_name
         tests:
           - not_null
 
@@ -64,6 +95,13 @@ models:
   - name: mart_performance_ranking
     columns:
       - name: laptop_model_id
+        tests:
+          - unique
+          - not_null
+
+  - name: mart_daily_site_kpis
+    columns:
+      - name: event_date
         tests:
           - unique
           - not_null

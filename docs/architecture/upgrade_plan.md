@@ -370,25 +370,48 @@ SELECT 'tgdd' AS source, * FROM {{ source('raw_tgdd', 'products') }}
 
 ## 📅 Roadmap 3 Sprints
 
-### 🟢 Sprint 1 — Ngay bây giờ (Dễ, giá trị cao)
-- [ ] Mở rộng `model_tests.yml`: `accepted_values`, `relationships` cho Silver
-- [ ] Thêm `description` vào `sources.yml` và Gold models
-- [ ] Thêm `freshness` check vào `sources.yml`
-- [ ] Khai báo `exposures.yml` cho Streamlit
-- [ ] Chạy `dbt docs serve`, chụp Lineage Graph cho CV
+### 🟢 Sprint 1 — Fast Wins & Data Governance ✅ (ĐÃ HOÀN THÀNH)
+- [x] Mở rộng `model_tests.yml`: `accepted_values`, `relationships` cho Silver (Hoàn thành: **26/26 tests PASS**)
+- [x] Khai báo `exposures.yml` cho Streamlit Dashboard (**1 exposure** kết nối 12 bảng Gold)
+- [x] Thêm `freshness` check vào `sources.yml` (**1/1 PASS**, cảnh báo 24h/48h)
+- [x] Chạy `dbt docs generate` & `dbt docs serve`, kiểm tra Lineage Graph & Documentation
 
-### 🟡 Sprint 2 — 1-2 tuần
-- [ ] Deduplication (`ROW_NUMBER()`) trong `silver_user_event_tracking`
-- [ ] Lookback window (-1h) vào ingestion script
-- [ ] 2 dbt Macros: `clean_string`, `safe_divide`
-- [ ] `unique_key` + `merge` strategy cho incremental models
+#### 💻 Hướng dẫn chạy nhanh Sprint 1 (Cheatsheet Commands)
+Khi cần chạy kiểm thử hoặc xem tài liệu dbt, mở terminal PowerShell và thực hiện:
 
-### 🔵 Sprint 3 — Optional
+```powershell
+# 1. Di chuyển vào thư mục dbt và kích hoạt venv
+cd d:\Dev\Project\laplaptech_pipeline\dbt
+..\venv\Scripts\activate
+
+# 2. Kiểm tra Data Quality (Chạy 26 tests ràng buộc toàn vẹn & giá trị hợp lệ)
+dbt test
+
+# 3. Kiểm tra độ tươi của dữ liệu nguồn (Source Freshness)
+dbt source freshness
+
+# 4. Sinh tài liệu và khởi chạy giao diện web Lineage Graph
+dbt docs generate
+dbt docs serve --port 8080
+```
+
+---
+
+### 🟡 Sprint 2 — Core Data Engineering & Idempotency ⏳ (TIẾP THEO)
+- [ ] **2.1 Deduplication (`ROW_NUMBER()`)** trong `silver_user_event_tracking` (chống duplicate clickstream)
+- [ ] **2.2 Lookback window (-1h)** vào ingestion script `clickhouse_to_postgres.py` (xử lý late-arriving data)
+- [ ] **2.3 dbt Macros** (`clean_string`, `safe_divide`) để chuẩn hóa tái sử dụng logic SQL
+- [ ] **2.4 Incremental Strategy (`merge` + `unique_key`)** cho các bảng Fact
+
+---
+
+### 🔵 Sprint 3 — Optional & Enhancements
 - [ ] `seeds/laptop_manual_price.csv` → Price Analytics
-- [ ] Snapshot cho `laptop_model` (khi có price để track)
+- [ ] Snapshot cho `laptop_model` (SCD Type 2 khi có track biến động giá)
 - [ ] `dbt-expectations` cho schema validation nâng cao
 - [ ] Metabase kết nối Supabase
 
 ---
 
-> 📝 **Living document** — cập nhật sau mỗi Sprint.
+> 📝 **Living document** — Cập nhật lần cuối sau khi hoàn thành Sprint 1 (25/09/2026).
+
