@@ -37,3 +37,5 @@ scratch/
 *.csv
 *.parquet
 data/
+
+logs/
