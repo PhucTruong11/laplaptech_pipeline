@@ -15,5 +15,11 @@ sources:
         description: "Laptop master data with specs and references"
       - name: laptop_benchmark_result
         description: "Benchmark test results for laptops"
+
+      # Cấu hình Freshness cho bảng user_event_tracking
       - name: user_event_tracking
         description: "Clickstream events with JSON payloads"
+        loaded_at_field: "to_timestamp(event_received_on_server_timestamp)"
+        freshness:
+          warn_after: {count: 24, period: hour}
+          error_after: {count: 48, period: hour}
