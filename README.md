@@ -103,8 +103,8 @@ flowchart LR
 - **Công nghệ đang dùng:** **dbt (Data Build Tool)**.
 - **Cách hoạt động:** Viết mã SQL để biến đổi dữ liệu. Được chia làm 3 lớp chuẩn:
   - **Bronze (6 models):** Ánh xạ (mapping) trực tiếp từ bảng Raw.
-  - **Silver (11 models):** Làm sạch, parse chuỗi JSON, lọc dữ liệu rác, xử lý kiểu thời gian.
-  - **Gold (10 models):** Aggregation (tổng hợp) thành các bảng Data Mart có sẵn (ví dụ: đếm view, đếm session, rank hiệu năng).
+  - **Silver (11 models):** Làm sạch, parse JSON, **Deduplication**, xử lý kiểu thời gian (Tối ưu hóa bằng **Incremental Models**).
+  - **Gold (10 models):** Aggregation thành các Data Marts phục vụ phân tích. Sử dụng **dbt Macros** để chuẩn hóa và tái sử dụng logic tính toán (VD: `safe_divide`).
 - **Có thể thay thế bằng:** **Apache Spark** (nếu data hàng tỷ dòng), **Google Dataform**.
 
 ### 2.4. Tầng Hiển thị (Data Visualization)

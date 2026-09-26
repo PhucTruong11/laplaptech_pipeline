@@ -13,27 +13,15 @@ SELECT
     lb.geekbench6_multi_battery,
     
     -- Derived Metrics
-    CASE 
-        WHEN lm.battery_capacity_whr > 0 
-        THEN ROUND((lb.geekbench6_multi / lm.battery_capacity_whr)::numeric, 2) 
-        ELSE NULL 
-    END AS performance_per_wh,
+    {{ safe_divide('lb.geekbench6_multi', 'lm.battery_capacity_whr') }} AS performance_per_wh,
     
-    CASE 
-        WHEN lm.laptop_weight_kg > 0 
-        THEN ROUND((lb.geekbench6_multi / lm.laptop_weight_kg)::numeric, 2) 
-        ELSE NULL 
-    END AS performance_per_kg,
+    {{ safe_divide('lb.geekbench6_multi', 'lm.laptop_weight_kg') }} AS performance_per_kg,
     
-    CASE 
-        WHEN lm.battery_capacity_whr > 0 
-        THEN ROUND((lb.office_battery_minutes / lm.battery_capacity_whr)::numeric, 2) 
-        ELSE NULL 
-    END AS battery_efficiency_mins_per_wh,
+    {{ safe_divide('lb.office_battery_minutes', 'lm.battery_capacity_whr') }} AS battery_efficiency_mins_per_wh,
     
     CASE 
         WHEN lb.geekbench6_multi > 0 AND lb.geekbench6_multi_battery IS NOT NULL
-        THEN ROUND((1.0 - (lb.geekbench6_multi_battery::numeric / lb.geekbench6_multi::numeric)) * 100, 2)
+        THEN ROUND((1.0 - ({{ safe_divide('lb.geekbench6_multi_battery', 'lb.geekbench6_multi', decimal_places=4) }})) * 100, 2)
         ELSE NULL 
     END AS performance_drop_pct
     

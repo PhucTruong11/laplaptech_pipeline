@@ -397,15 +397,35 @@ dbt docs serve --port 8080
 
 ---
 
-### 🟡 Sprint 2 — Core Data Engineering & Idempotency ⏳ (TIẾP THEO)
-- [ ] **2.1 Deduplication (`ROW_NUMBER()`)** trong `silver_user_event_tracking` (chống duplicate clickstream)
-- [ ] **2.2 Lookback window (-1h)** vào ingestion script `clickhouse_to_postgres.py` (xử lý late-arriving data)
-- [ ] **2.3 dbt Macros** (`clean_string`, `safe_divide`) để chuẩn hóa tái sử dụng logic SQL
-- [ ] **2.4 Incremental Strategy (`merge` + `unique_key`)** cho các bảng Fact
+### 🟢 Sprint 2 — Core Data Engineering & Idempotency ✅ (ĐÃ HOÀN THÀNH)
+- [x] **2.1 Tối ưu Ingestion Script (`clickhouse_to_postgres.py`)**: Sửa lỗi phá vỡ view (đổi `DROP CASCADE` sang `TRUNCATE` + `append`) & Thêm **Lookback window (-1h)** bắt dữ liệu trễ.
+- [x] **2.2 Deduplication (`ROW_NUMBER()`)**: Loại bỏ các dòng sự kiện trùng lặp do cơ chế Lookback window sinh ra trong model `silver_user_event_tracking`.
+- [x] **2.3 dbt Macros (`clean_string`, `safe_divide`)**: Tránh lỗi chia cho 0 và tái sử dụng logic làm sạch chuỗi. Đã áp dụng đồng bộ cho 5 models.
+- [x] **2.4 Incremental Models**: Chuyển đổi `silver_user_event_tracking` thành bảng Incremental, giúp giảm thời gian parse JSON hàng triệu dòng từ vài phút xuống vài giây.
+
+#### 💻 Hướng dẫn chạy toàn bộ Hệ Thống (Pipeline Cheatsheet)
+Để chạy toàn bộ Data Pipeline từ việc kéo dữ liệu đến khi transform ra các bảng Data Mart cuối cùng, mở terminal PowerShell và thực hiện:
+
+```powershell
+# 1. Đi tới thư mục gốc và kích hoạt môi trường ảo
+cd d:\Dev\Project\laplaptech_pipeline
+.\venv\Scripts\activate
+
+# 2. Chạy Script kéo dữ liệu từ ClickHouse về PostgreSQL
+python ingestion\clickhouse_to_postgres.py
+
+# 3. Chạy dbt để Transform dữ liệu (Dùng chế độ Incremental tự động)
+cd dbt
+dbt run
+
+# (Tùy chọn) 4. Mở Dashboard Streamlit để xem biểu đồ
+cd ..
+streamlit run streamlit_app\app.py
+```
 
 ---
 
-### 🔵 Sprint 3 — Optional & Enhancements
+### 🟡 Sprint 3 — Optional & Enhancements ⏳ (TIẾP THEO)
 - [ ] `seeds/laptop_manual_price.csv` → Price Analytics
 - [ ] Snapshot cho `laptop_model` (SCD Type 2 khi có track biến động giá)
 - [ ] `dbt-expectations` cho schema validation nâng cao
@@ -413,5 +433,5 @@ dbt docs serve --port 8080
 
 ---
 
-> 📝 **Living document** — Cập nhật lần cuối sau khi hoàn thành Sprint 1 (25/09/2026).
+> 📝 **Living document** — Cập nhật lần cuối sau khi hoàn thành Sprint 2 (26/09/2026).
 
