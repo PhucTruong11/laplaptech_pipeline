@@ -157,14 +157,20 @@ def extract_incremental(
         pass
 
     if max_ts:
-        if isinstance(max_ts, str):
-            max_ts_dt = pd.to_datetime(max_ts)
+        if isinstance(max_ts, (int, float)):
+            # Epoch timestamp in seconds. 1 hour = 3600 seconds
+            lookback_ts = int(max_ts) - 3600
+            query_val = f"{lookback_ts}"
         else:
-            max_ts_dt = max_ts
-        lookback_ts = max_ts_dt - timedelta(hours=1)
+            if isinstance(max_ts, str):
+                max_ts_dt = pd.to_datetime(max_ts)
+            else:
+                max_ts_dt = max_ts
+            lookback_ts = max_ts_dt - timedelta(hours=1)
+            query_val = f"'{lookback_ts.strftime('%Y-%m-%d %H:%M:%S')}'"
 
         # Query lấy dữ liệu từ Lookback_ts thay vì max_ts
-        query = f"SELECT * FROM {table_name} WHERE {timestamp_col} >= '{lookback_ts.strftime('%Y-%m-%d %H:%M:%S')}'"
+        query = f"SELECT * FROM {table_name} WHERE {timestamp_col} >= {query_val}"
         logger.info(
             f"Extracting incremental: {table_name} (Lookback window from {lookback_ts})"
         )
