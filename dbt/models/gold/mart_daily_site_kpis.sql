@@ -13,15 +13,9 @@ SELECT
     SUM(reached_sort_in_comparison::int)        AS sessions_with_sort,
 
     -- Conversion rates
-    ROUND(
-        SUM(reached_product_detail::int)::numeric /
-        NULLIF(SUM(reached_pageview::int), 0) * 100, 1
-    )                                           AS detail_rate_pct,
+    {{ safe_divide('SUM(reached_product_detail::int)', 'SUM(reached_pageview::int)', decimal_places=3) }} * 100 AS detail_rate_pct,
 
-    ROUND(
-        SUM(reached_comparison_page::int)::numeric /
-        NULLIF(SUM(reached_product_detail::int), 0) * 100, 1
-    )                                           AS comparison_rate_pct
+    {{ safe_divide('SUM(reached_comparison_page::int)', 'SUM(reached_product_detail::int)', decimal_places=3) }} * 100 AS comparison_rate_pct
 
 FROM {{ ref('silver_session_funnel') }}
 GROUP BY event_date

@@ -3,7 +3,7 @@
 
 SELECT
     lm.id::int                                  AS laptop_model_id,
-    TRIM(lm.name)                               AS laptop_name,
+    {{ clean_string('lm.name') }}                               AS laptop_name,
 
     -- Brand info
     lm.brand_id::int                            AS brand_id,

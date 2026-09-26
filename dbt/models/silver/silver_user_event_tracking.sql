@@ -1,8 +1,15 @@
--- Silver: user_event_tracking — parsed JSON fields
+{{ config(
+    materialized='incremental',
+    unique_key='id',
+    on_schema_change='sync_all_columns'
+) }}
+
+-- Silver: user_event_tracking — parsed JSON fields + deduplication
 -- Extracts key fields from event_data and device JSON columns
 -- Uses PostgreSQL JSON operators (->>, #>>)
 
-SELECT
+WITH parsed AS (
+    SELECT
     id,
     event_name,
     session_id,
@@ -31,8 +38,32 @@ SELECT
 
     -- Keep raw JSON for ad-hoc queries
     event_data,
-    device
+    device,
 
-FROM {{ ref('bronze_user_event_tracking') }}
-WHERE event_name IS NOT NULL
-  AND session_id IS NOT NULL
+    -- Đánh số thứ tự: nếu trùng id, giữ bản ghi mới nhất
+    ROW_NUMBER() OVER (
+        PARTITION BY id
+        ORDER BY event_received_on_server_timestamp DESC
+    ) AS row_num
+
+    FROM {{ ref('bronze_user_event_tracking') }}
+    WHERE event_name IS NOT NULL
+    AND session_id IS NOT NULL
+
+    {% if is_incremental() %}
+    -- Chỉ lấy các event mới hơn event mới nhất đã được lưu trong model này
+    AND to_timestamp(event_received_on_server_timestamp) > (
+        SELECT MAX(server_timestamp) FROM {{ this }}
+    )
+    {% endif %}
+)
+
+SELECT
+    id, event_name, session_id,
+    event_timestamp, server_timestamp,
+    device_id, page_name, search_keyword,
+    sort_by, sort_direction,
+    device_ids_raw, user_os, user_os_version, user_browser,
+    user_device_type, event_data, device
+FROM parsed
+WHERE row_num = 1

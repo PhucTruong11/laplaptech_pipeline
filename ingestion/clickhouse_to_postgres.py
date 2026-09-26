@@ -21,6 +21,8 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
+from datetime import timedelta
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -155,9 +157,16 @@ def extract_incremental(
         pass
 
     if max_ts:
-        query = f"SELECT * FROM {table_name} WHERE {timestamp_col} > '{max_ts}'"
+        if isinstance(max_ts, str):
+            max_ts_dt = pd.to_datetime(max_ts)
+        else:
+            max_ts_dt = max_ts
+        lookback_ts = max_ts_dt - timedelta(hours=1)
+
+        # Query lấy dữ liệu từ Lookback_ts thay vì max_ts
+        query = f"SELECT * FROM {table_name} WHERE {timestamp_col} >= '{lookback_ts.strftime('%Y-%m-%d %H:%M:%S')}'"
         logger.info(
-            f"Extracting incremental: {table_name} (after {max_ts})"
+            f"Extracting incremental: {table_name} (Lookback window from {lookback_ts})"
         )
     else:
         query = f"SELECT * FROM {table_name}"
@@ -172,31 +181,37 @@ def extract_incremental(
 
 
 def load_to_postgres(
-    df: pd.DataFrame, table_name: str, engine, if_exists: str = "replace"
+    df: pd.DataFrame, table_name: str, engine, if_exists: str = "append", truncate_first: bool = False
 ):
     """Load a DataFrame into PostgreSQL."""
     if df.empty:
-        logger.info(f"  → No new data for {table_name}, skipping load")
+        logger.info(f"  → 0 rows to load for {table_name}")
         return
 
     logger.info(f"Loading {len(df):,} rows into {RAW_SCHEMA}.{table_name}...")
-    
-    # Custom replace logic to handle dependent dbt views
-    if if_exists == "replace":
-        with engine.begin() as conn:
-            conn.execute(text(f"DROP TABLE IF EXISTS {RAW_SCHEMA}.{table_name} CASCADE"))
-        if_exists = "append"
 
-    df.to_sql(
-        name=table_name,
-        con=engine,
-        schema=RAW_SCHEMA,
-        if_exists=if_exists,
-        index=False,
-        method="multi",
-        chunksize=5000,
-    )
-    logger.info(f"  → Loaded successfully")
+    try:
+        if truncate_first:
+            with engine.begin() as conn:
+                # TRUNCATE giữ nguyên view, không làm sập dbt
+                conn.execute(text(f"TRUNCATE TABLE {RAW_SCHEMA}.{table_name}"))
+                logger.info(f"  → Truncated table {table_name}")
+        # Sau khi dọn sạch (hoặc không), chỉ dùng "append" để ghi dữ liệu vào
+        df.to_sql(
+            table_name,
+            con=engine,
+            schema=RAW_SCHEMA,
+            if_exists="append",
+            index=False,
+            chunksize=10000,
+            method="multi",
+        )
+        logger.info(f"  → Loaded {len(df):,} rows into PostgreSQL ({table_name})")
+    except Exception as e:
+        logger.error(f"Failed to load {table_name}: {e}")
+        raise
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -224,34 +239,16 @@ def run_pipeline():
     for table_name in FULL_REFRESH_TABLES:
         try:
             df = extract_full_table(ch_client, table_name)
-            load_to_postgres(df, table_name, engine, if_exists="replace")
+            load_to_postgres(df, table_name, engine, truncate_first=True)
         except Exception as e:
             logger.error(f"Error processing {table_name}: {e}")
             raise
 
-    # 4. Incremental tables
+    # 4. Incremental tables (append only — dedup handled by dbt)
     for table_name, ts_col in INCREMENTAL_TABLES.items():
         try:
             df = extract_incremental(ch_client, table_name, ts_col, engine)
-            # First load = replace, subsequent = append
-            mode = "replace" if df.shape[0] > 0 else "append"
-            # Check if table exists to decide mode
-            try:
-                with engine.connect() as conn:
-                    result = conn.execute(
-                        text(
-                            f"SELECT COUNT(*) FROM {RAW_SCHEMA}.{table_name}"
-                        )
-                    )
-                    existing_count = result.fetchone()[0]
-                    if existing_count > 0:
-                        mode = "append"
-                    else:
-                        mode = "replace"
-            except Exception:
-                mode = "replace"
-
-            load_to_postgres(df, table_name, engine, if_exists=mode)
+            load_to_postgres(df, table_name, engine, truncate_first=False)
         except Exception as e:
             logger.error(f"Error processing {table_name}: {e}")
             raise
