@@ -1,5 +1,20 @@
 # LaplapTech Analytics Pipeline 🚀
 
+<p align="center">
+  <a href="https://github.com/PhucTruong11/laplaptech_pipeline/actions/workflows/sync-pipeline.yml">
+    <img src="https://github.com/PhucTruong11/laplaptech_pipeline/actions/workflows/sync-pipeline.yml/badge.svg" alt="CI/CD Pipeline" />
+  </a>
+  <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/dbt--core-v1.12-FF694B?logo=dbt&logoColor=white" alt="dbt" />
+  <img src="https://img.shields.io/badge/PostgreSQL-Warehouse-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/ClickHouse-Source-F3E836?logo=clickhouse&logoColor=000" alt="ClickHouse" />
+  <img src="https://img.shields.io/badge/Streamlit-App-FF4B4B?logo=streamlit&logoColor=white" alt="Streamlit" />
+  <img src="https://img.shields.io/badge/Data%20Tests-26%2F26%20PASS-2ea44f" alt="Tests" />
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
+  </a>
+</p>
+
 > 💡 **Tóm tắt dự án:** Đây là một hệ thống Data Pipeline hoàn chỉnh (End-to-End ELT) mô phỏng quy trình xử lý dữ liệu của các doanh nghiệp thực tế. Dự án tự động trích xuất dữ liệu từ nguồn ClickHouse, nạp vào PostgreSQL Data Warehouse, làm sạch và chuyển đổi qua kiến trúc Medallion (Bronze - Silver - Gold) với dbt, áp dụng các kỹ thuật nâng cao (**Incremental Models**, **Deduplication**, **Lookback Window**, **dbt Macros**, **Data Quality Tests**) và xây dựng Dashboard Streamlit trực quan phục vụ ra quyết định kinh doanh.
 
 ---
