@@ -1,63 +1,62 @@
 # LaplapTech Analytics Pipeline 🚀
 
-> 💡 **Tóm tắt dự án:** Đây là một hệ thống Data Pipeline hoàn chỉnh (End-to-End) mô phỏng quy trình xử lý dữ liệu của các doanh nghiệp thực tế. Dự án tự động kéo dữ liệu từ nguồn, làm sạch, chuyển đổi và xây dựng Dashboard trực quan phục vụ cho việc ra quyết định.
+> 💡 **Tóm tắt dự án:** Đây là một hệ thống Data Pipeline hoàn chỉnh (End-to-End ELT) mô phỏng quy trình xử lý dữ liệu của các doanh nghiệp thực tế. Dự án tự động trích xuất dữ liệu từ nguồn ClickHouse, nạp vào PostgreSQL Data Warehouse, làm sạch và chuyển đổi qua kiến trúc Medallion (Bronze - Silver - Gold) với dbt, áp dụng các kỹ thuật nâng cao (**Incremental Models**, **Deduplication**, **Lookback Window**, **dbt Macros**, **Data Quality Tests**) và xây dựng Dashboard Streamlit trực quan phục vụ ra quyết định kinh doanh.
 
 ---
 
 ## 🏗️ 1. Sơ đồ Vận hành & Hạ tầng (Architecture & Flow)
 
-Dự án áp dụng kiến trúc **ELT (Extract, Load, Transform)** hiện đại. Dưới đây là sơ đồ chi tiết về dòng chảy dữ liệu (Data Flow) và hạ tầng (Infrastructure):
+Dự án áp dụng kiến trúc **ELT (Extract, Load, Transform)** hiện đại theo chuẩn Medallion Architecture:
 
 ```mermaid
 flowchart TD
     %% Định nghĩa các hệ thống
     subgraph Source ["📡 Nguồn dữ liệu (Data Source)"]
-        CH[("ClickHouse<br>Server Xóm Data")]
+        CH[("ClickHouse Server<br>(Xóm Data: 760k+ events & specs)")]
     end
 
     subgraph Compute ["⚙️ Máy chủ Xử lý (Compute & Orchestration)"]
-        PY["Python Script<br>clickhouse_to_postgres.py"]
-        DBT["dbt Core<br>Transformation Engine"]
-        GHA(("GitHub Actions<br>Cronjob"))
+        PY["Python Ingestion<br>clickhouse_to_postgres.py<br>(TRUNCATE & Lookback Window)"]
+        DBT["dbt Core (Transformation Engine)<br>Macros & Incremental"]
+        GHA(("GitHub Actions<br>Cronjob 2 lần/ngày"))
     end
 
-    subgraph Storage ["🗄️ Kho lưu trữ nội bộ (Data Warehouse)"]
-        PG[("PostgreSQL<br>Supabase / Local")]
-        RAW["Schema: raw"]
-        BRONZE["Schema: public_bronze<br>(Dữ liệu thô)"]
-        SILVER["Schema: public_silver<br>(Làm sạch & Bóc tách)"]
-        GOLD["Schema: public_gold<br>(Data Marts)"]
+    subgraph Storage ["🗄️ Kho lưu trữ nội bộ (PostgreSQL Data Warehouse)"]
+        RAW["Schema: raw<br>(Dữ liệu gốc sau nạp)"]
+        BRONZE["Schema: public_bronze<br>(6 Views trừu tượng hóa)"]
+        SILVER["Schema: public_silver<br>(10 Views + 1 Incremental Table)"]
+        GOLD["Schema: public_gold<br>(12 Tables - Data Marts)"]
     end
 
-    subgraph Presentation ["📊 Hiển thị (Data Visualization)"]
-        ST["Streamlit Dashboard<br>Local: 8501"]
+    subgraph Presentation ["📊 Tầng Hiển thị (Data Visualization)"]
+        ST["Streamlit Web Dashboard<br>(Glassmorphism UI - Port 8501)"]
     end
 
     %% Mũi tên luồng dữ liệu
-    CH -- "Extract: Đọc dữ liệu qua cổng 80" --> PY
-    PY -- "Load: Ghi dữ liệu gốc" --> RAW
-    RAW -. "Đọc dữ liệu" .-> DBT
-    DBT -- "Transform: Tạo view" --> BRONZE
-    DBT -- "Transform: SQL Cleaning" --> SILVER
-    DBT -- "Transform: Tổng hợp KPIs" --> GOLD
-    GOLD -- "Truy vấn SQL" --> ST
-    GHA -. "Lên lịch hằng ngày (09:00)" .-> PY
-    GHA -. "Trigger lệnh build" .-> DBT
+    CH -- "Extract: HTTP Port 80 (Lookback -1h)" --> PY
+    PY -- "Load: Bulk Insert (chunksize=10k)" --> RAW
+    RAW -. "Mapping 1:1" .-> BRONZE
+    BRONZE -- "SQL Cleaning, Regex & JSON Parsing" --> SILVER
+    SILVER -- "Aggregation & Business Metrics" --> GOLD
+    GOLD -- "Truy vấn SQL tốc độ cao" --> ST
+    GHA -. "Lên lịch tự động (08:15 & 16:45 VN)" .-> PY
+    GHA -. "Trigger dbt build & test" .-> DBT
 
     %% Đổ màu cho sơ đồ đẹp hơn
     style CH fill:#f97316,stroke:#fff,color:#fff
     style PY fill:#3b82f6,stroke:#fff,color:#fff
-    style PG fill:#0ea5e9,stroke:#fff,color:#fff
+    style RAW fill:#64748b,stroke:#fff,color:#fff
+    style BRONZE fill:#cd7f32,stroke:#fff,color:#fff
+    style SILVER fill:#94a3b8,stroke:#fff,color:#fff
+    style GOLD fill:#eab308,stroke:#fff,color:#fff
     style DBT fill:#f43f5e,stroke:#fff,color:#fff
-    style ST fill:#ef4444,stroke:#fff,color:#fff
+    style ST fill:#10b981,stroke:#fff,color:#fff
     style GHA fill:#18181b,stroke:#fff,color:#fff
 ```
 
 ---
 
-## 🧩 2. Các thành phần, Công nghệ & Giải pháp thay thế
-
-Dưới đây là chi tiết cách hệ thống hoạt động, công nghệ đang dùng và các công nghệ có thể dùng thay thế khi dự án scale lớn hơn:
+## 🧩 2. Các thành phần, Công nghệ & Điểm Nâng Cấp Kỹ Thuật
 
 ### 2.1. Tầng Thu thập dữ liệu (Extract & Load)
 
@@ -68,139 +67,174 @@ sequenceDiagram
     participant CH as ClickHouse (Source)
     participant PG as PostgreSQL (Raw)
 
-    GH->>PY: Lên lịch chạy lúc 09:00 hằng ngày
-    PY->>CH: Kết nối & Query (HTTP Port 80)
-    CH-->>PY: Trả về ~760k dòng Events & Specs
-    PY->>PY: Xử lý bộ nhớ (Chunking / Pandas)
-    PY->>PG: Bulk Insert (to_sql) vào schema 'raw'
+    GH->>PY: Lên lịch chạy (08:15 & 16:45 VN / on push)
+    PY->>CH: Kết nối HTTP Port 80 & Query
+    CH-->>PY: Trích xuất 760k+ dòng Events & Hardware Specs
+    PY->>PY: Bắt late-arriving data qua Lookback Window (-1h)
+    PY->>PG: TRUNCATE bảng Dimension (tránh sập view)
+    PY->>PG: Bulk Insert (chunksize=10.000) vào schema 'raw'
 ```
 
-- **Công nghệ đang dùng:** **Python (Pandas, SQLAlchemy)**. Kéo dữ liệu qua API/HTTP và load trực tiếp vào Database.
-- **Cách hoạt động:** Script `clickhouse_to_postgres.py` sẽ "lái xe" sang server ClickHouse, hốt ~760k dòng event mang về đúc vào schema `raw` của PostgreSQL.
-- **Có thể thay thế bằng:** **Airbyte**, **Fivetran** (giải pháp SaaS tự động kéo data), hoặc **Kafka** (nếu cần stream data theo thời gian thực thay vì batch).
+- **Công nghệ đang dùng:** **Python (Pandas, SQLAlchemy, clickhouse-connect)**.
+- **Điểm nâng cấp quan trọng:**
+  - **Idempotency với TRUNCATE:** Thay vì dùng `DROP TABLE` hoặc `if_exists='replace'` (gây xóa sạch các VIEW ở tầng Bronze phía sau), hệ thống dùng `TRUNCATE TABLE raw.<table_name>` kết hợp `if_exists='append'`. Nhờ đó cấu trúc bảng và view luôn được bảo toàn nguyên vẹn.
+  - **Lookback Window (-1h):** Bảng sự kiện `user_event_tracking` lấy mốc thời gian lớn nhất trừ lùi 1 giờ để tóm gọn các bản ghi gửi trễ (late-arriving data) do nghẽn mạng hay retry.
+  - **Chunking Bulk Insert:** Chia nhỏ từng lô 10.000 dòng (`chunksize=10000`, `method='multi'`) giúp tiết kiệm RAM và tăng tốc độ ghi dữ liệu.
 
 ### 2.2. Kho lưu trữ (Data Warehouse)
-- **Công nghệ đang dùng:** **PostgreSQL (Supabase)**. Sử dụng Supabase làm Data Warehouse trên Cloud (hoặc chạy Local).
-- **Cách hoạt động:** Là trái tim của hệ thống, chứa toàn bộ dữ liệu từ dạng Thô (Raw) đến dạng Tinh chế (Gold).
-- **Có thể thay thế bằng:** **Google BigQuery**, **Snowflake**, **Amazon Redshift** (chuẩn Data Warehouse cho doanh nghiệp cực lớn).
+- **Công nghệ đang dùng:** **PostgreSQL (Supabase trên Cloud hoặc PostgreSQL Local)**.
+- **Cách tổ chức:** Phân chia thành các schema độc lập theo Medallion Architecture: `raw`, `public_bronze`, `public_silver`, `public_gold`.
 
-### 2.3. Tầng Biến đổi & Làm sạch (Transform)
+### 2.3. Tầng Biến đổi dữ liệu (Transform với dbt Core)
 
 ```mermaid
 flowchart LR
-    RAW[(PostgreSQL<br>Schema: raw)] -->|Khai báo sources.yml| BRONZE
+    RAW[(PostgreSQL<br>Schema: raw)] -->|Mapping 1:1| BRONZE
 
-    subgraph dbt ["dbt Transformation Workflow"]
+    subgraph dbt ["dbt Core Transformation Workflow (29 Models)"]
         direction TB
-        BRONZE["Bronze Layer<br>(6 views)"] -->|"Đổi tên, ép kiểu"| SILVER
-        SILVER["Silver Layer<br>(11 views)"] -->|"Parse JSON (->>)<br>Lọc rác"| GOLD
-        GOLD["Gold Layer<br>(10 tables)"]
+        BRONZE["Bronze Layer<br>(6 Views)"] -->|"Đổi tên, ép kiểu chuẩn"| SILVER
+        SILVER["Silver Layer<br>(10 Views + 1 Incremental Table)"] -->|"Deduplication & Parse JSON<br>Clean String Macro"| GOLD
+        GOLD["Gold Layer<br>(12 Tables - Data Marts)<br>Safe Divide Macro"]
     end
 
-    GOLD -->|"Lưu cứng thành bảng"| ST[(PostgreSQL<br>Schema: public_gold)]
+    GOLD -->|"Lưu cứng thành bảng"| ST[(Data Warehouse<br>Schema: public_gold)]
 ```
 
-- **Công nghệ đang dùng:** **dbt (Data Build Tool)**.
-- **Cách hoạt động:** Viết mã SQL để biến đổi dữ liệu. Được chia làm 3 lớp chuẩn:
-  - **Bronze (6 models):** Ánh xạ (mapping) trực tiếp từ bảng Raw.
-  - **Silver (11 models):** Làm sạch, parse JSON, **Deduplication**, xử lý kiểu thời gian (Tối ưu hóa bằng **Incremental Models**).
-  - **Gold (10 models):** Aggregation thành các Data Marts phục vụ phân tích. Sử dụng **dbt Macros** để chuẩn hóa và tái sử dụng logic tính toán (VD: `safe_divide`).
-- **Có thể thay thế bằng:** **Apache Spark** (nếu data hàng tỷ dòng), **Google Dataform**.
+- **Bronze Layer (6 models - Views):** Ánh xạ trực tiếp từ các bảng Raw, đóng vai trò lớp trừu tượng hóa (Contract layer).
+- **Silver Layer (11 models - 10 Views + 1 Incremental Table):**
+  - **Incremental Table (`silver_user_event_tracking`):** Chuyển từ View sang bảng Incremental vật lý với `unique_key='id'`, chỉ nạp các dòng mới dựa vào watermark `server_timestamp`. Rút ngắn thời gian parse JSON 760k+ dòng từ vài phút xuống còn **~13 giây**.
+  - **Deduplication:** Khử trùng lặp bản ghi phát sinh từ Lookback window bằng hàm `ROW_NUMBER() OVER (PARTITION BY id ORDER BY server_timestamp DESC)`.
+  - **Macro `clean_string`:** Chuẩn hóa chuỗi bằng Regex `\s+` loại bỏ khoảng trắng thừa cho tên laptop, CPU, thương hiệu.
+- **Gold Layer (12 models - Tables):**
+  - Tạo 12 bảng Data Marts chuyên biệt phục vụ phân tích.
+  - **Macro `safe_divide`:** Chống lỗi chia cho 0 (`ZeroDivisionError`) khi tính toán tỷ lệ chuyển đổi phễu và ma trận hiệu năng.
+- **Data Governance & Quality:**
+  - **26 dbt tests** tự động kiểm tra tính duy nhất (`unique`), không rỗng (`not_null`), toàn vẹn khóa ngoại (`relationships`), và giá trị hợp lệ (`accepted_values`).
+  - **1 source freshness check** cảnh báo khi dữ liệu nguồn trễ quá 24h.
+  - **1 dbt exposure** liên kết Streamlit Dashboard với toàn bộ 12 bảng Gold trên sơ đồ Lineage Graph.
 
 ### 2.4. Tầng Hiển thị (Data Visualization)
-
-```mermaid
-flowchart TD
-    DB[(Data Warehouse<br>Schema: public_gold)] -->|"Truy vấn SQL"| Cache
-    Cache["@st.cache_data<br>(Lưu đệm 5 phút)"] --> Pandas["Pandas DataFrame"]
-    Pandas --> Plotly["Plotly Express<br>(Vẽ biểu đồ)"]
-    Plotly --> UI["Giao diện Web<br>(Glassmorphism CSS)"]
-```
-
-- **Công nghệ đang dùng:** **Streamlit & Plotly** (Dashboard Web).
-- **Cách hoạt động:** Kết nối trực tiếp vào schema `public_gold` của PostgreSQL để vẽ biểu đồ tương tác cực mượt mà không cần xử lý tính toán gì thêm ở front-end.
-- **Có thể thay thế bằng:** **Tableau**, **Metabase**, **Apache Superset**.
+- **Công nghệ đang dùng:** **Streamlit & Plotly Express** (Port 8501).
+- **Tối ưu:** Sử dụng `@st.cache_data(ttl=300)` lưu đệm 5 phút, truy vấn thẳng vào 12 bảng Gold của PostgreSQL, kết hợp giao diện Dark Mode / Glassmorphism CSS hiện đại.
 
 ### 2.5. Tự động hóa (Orchestration)
-- **Công nghệ đang dùng:** **GitHub Actions**.
-- **Cách hoạt động:** Lên lịch chạy (Cronjob) tự động vào 9 giờ sáng mỗi ngày. Nó sẽ tuần tự chạy Python script -> dbt build.
-- **Có thể thay thế bằng:** **Apache Airflow**, **Prefect**, **Dagster** (Quản lý luồng công việc phức tạp, nhiều dependencies hơn).
+- **Công nghệ đang dùng:** **GitHub Actions** (`.github/workflows/sync-pipeline.yml`).
+- **Lịch trình:** Tự động kích hoạt vào lúc **08:15 và 16:45 (Giờ Việt Nam)** hằng ngày, và kích hoạt khi có commit mới trên nhánh `main` hoặc `develop`.
 
 ---
 
-## 🚀 3. Khả năng ứng dụng & Định hướng nâng cấp
+## 🚀 3. Giá Trị Kinh Doanh Từ 12 Bảng Gold Data Marts
 
-### 🎯 Khả năng ứng dụng hiện tại
-Dựa vào 10 bảng Gold, hệ thống hiện tại đang trả lời 3 câu hỏi kinh doanh cốt lõi:
-1. **Brand & Product Analytics:** Brand nào đang dẫn đầu thị phần quan tâm? Hành vi tìm kiếm nào đang là khoảng trống thị trường (Product Gap)?
-2. **Hardware Trends:** Xu hướng tìm kiếm CPU/GPU thay đổi thế nào qua các tháng?
-3. **Performance & Efficiency:** Phân tích Ma trận hiệu năng (The Efficiency Matrix) - Hiệu năng trên cân nặng (Tính di động), và mức độ sụt giảm sức mạnh khi dùng pin.
-
-### 📈 Định hướng nâng cấp (Scalability)
-Nếu đưa hệ thống này lên môi trường Production thực tế, có thể áp dụng các bước:
-1. **Containerization (Đóng gói):** Bọc Python Ingestion, dbt và Streamlit vào các **Docker Image** và chạy qua `docker-compose`.
-2. **Cloud Migration:** Dự án đang tích hợp sẵn **Supabase** (PostgreSQL trên Cloud) rất tối ưu chi phí. Ở quy mô Enterprise, có thể đổi sang **AWS RDS** hoặc **Google Cloud SQL**. Đẩy Streamlit lên **Render** hoặc **Cloud Run**.
-3. **Data Quality & Alerting:** Cấu hình dbt tests sâu hơn để bắt lỗi dữ liệu hỏng, tích hợp bắn cảnh báo tự động về Slack/Telegram qua Airflow mỗi khi pipeline fail.
+Hệ thống cung cấp góc nhìn đa chiều phục vụ việc ra quyết định của các phòng ban:
+1. **Brand & Product Analytics:** Thị phần quan tâm của các hãng (`mart_brand_interest`), tỷ lệ so sánh giữa các thương hiệu (`mart_brand_comparison`), và nhu cầu theo thông số (`mart_spec_popularity`).
+2. **Hardware Trends:** Xu hướng quan tâm các dòng vi xử lý CPU (`mart_cpu_trend`) và card đồ họa GPU (`mart_gpu_trend`) qua từng tháng.
+3. **The Efficiency Matrix:** Ma trận hiệu năng laptop (`mart_performance_efficiency`), tính toán điểm hiệu năng trên mỗi Wh dung lượng pin, hiệu năng trên mỗi kg cân nặng máy, và mức độ sụt giảm sức mạnh khi rút sạc.
+4. **User Journey & Search Insights:** Phân tích phễu chuyển đổi hành vi (`mart_daily_site_kpis`, `mart_behavior_funnel_daily`), từ khóa tìm kiếm (`mart_search_analytics`), và phân bố hệ điều hành người dùng (`mart_user_os`).
 
 ---
 
-## 🛠️ 4. Hướng dẫn cài đặt (Quick Start)
+## 🛠️ 4. Hướng Dẫn Cài Đặt & Danh Mục Lệnh dbt (Command Cheatsheet)
 
-### 4.1. Khởi tạo
+### 4.1. Cài đặt ban đầu (Setup)
+
 ```bash
-# Clone project & tạo thư mục
+# 1. Di chuyển vào thư mục dự án
 cd laplaptech_pipeline
 
-# Tạo virtual environment và kích hoạt
+# 2. Khởi tạo môi trường ảo Python & kích hoạt
 python -m venv venv
-.\venv\Scripts\activate  # Windows
+.\venv\Scripts\activate  # Trên Windows PowerShell
+# source venv/bin/activate  # Trên Linux/macOS
 
-# Cài đặt thư viện
+# 3. Cài đặt các thư viện cần thiết
 pip install -r requirements.txt
-```
 
-### 4.2. Cấu hình
-```bash
-# Copy file môi trường và điền thông tin (Postgres user/pass)
+# 4. Thiết lập file biến môi trường (ClickHouse & PostgreSQL credentials)
 cp .env.example .env
+# Mở file .env và điền các thông tin kết nối
 ```
 
-### 4.3. Chạy Pipeline
+### 4.2. Chạy nhanh toàn bộ Pipeline (End-to-End Execution)
+
 ```bash
-# Bước 1: Kéo dữ liệu ClickHouse → PostgreSQL
+# Bước 1: Kéo dữ liệu từ ClickHouse nạp vào PostgreSQL raw
 python ingestion/clickhouse_to_postgres.py
 
-# Bước 2: Chạy dbt (Clean & Transform)
+# Bước 2: Chuyển đổi dữ liệu và chạy tests với dbt
 cd dbt
-dbt build --profiles-dir .
+dbt run
+dbt test
 
-# Bước 3: Mở Dashboard xem kết quả
+# Bước 3: Khởi chạy Streamlit Dashboard
 cd ..
 streamlit run streamlit_app/app.py
 ```
 
 ---
 
-## 📁 5. Cấu trúc thư mục (Project Structure)
+### 💻 4.3. Bảng Tổng Hợp Lệnh dbt (dbt CLI Cheatsheet)
+
+Tất cả các lệnh dưới đây đều thực hiện từ thư mục `dbt/` (với venv đã được kích hoạt):
+
+| Nhóm thao tác | Lệnh thực thi | Mục đích & Giải thích chi tiết |
+|---|---|---|
+| **Kiểm tra kết nối** | `dbt debug` | Kiểm tra kết nối tới PostgreSQL và xác thực file `profiles.yml`. |
+| **Cài đặt thư viện** | `dbt deps` | Tải về các package dbt mở rộng khai báo trong `packages.yml`. |
+| **Biên dịch mã** | `dbt parse` | Kiểm tra cú pháp của toàn bộ file SQL, Jinja, Models và Schemas. |
+| | `dbt compile` | Dịch mã Jinja thành các câu lệnh SQL thuần trong thư mục `target/compiled/`. |
+| **Chạy Pipeline (Run)** | `dbt run` | **Chạy toàn bộ 29 models**. Model incremental sẽ tự động nạp dữ liệu mới. |
+| | `dbt run --select bronze` | Chỉ chạy 6 models thuộc tầng Bronze (Views). |
+| | `dbt run --select silver` | Chỉ chạy 11 models thuộc tầng Silver. |
+| | `dbt run --select gold` | Chỉ chạy 12 models thuộc tầng Gold (Data Marts). |
+| | `dbt run --select silver_user_event_tracking` | Chỉ chạy riêng model sự kiện gia tăng. |
+| | `dbt run --select +mart_daily_site_kpis` | Chạy model `mart_daily_site_kpis` và toàn bộ các model thượng nguồn (upstream) của nó. |
+| **Re-build từ đầu** | `dbt run --full-refresh` | **Xóa sạch bảng incremental và nạp lại toàn bộ dữ liệu từ đầu**. Dùng khi thay đổi logic bóc tách JSON hoặc cấu trúc schema. |
+| **Kiểm thử dữ liệu (Test)** | `dbt test` | **Chạy toàn bộ 26 bài test** kiểm tra ràng buộc `unique`, `not_null`, `accepted_values`, `relationships`. |
+| | `dbt test --select silver` | Chỉ chạy các bài test ràng buộc trên tầng Silver. |
+| | `dbt test --select test_type:relationships` | Chỉ chạy các bài test kiểm tra toàn vẹn khóa ngoại (Foreign Keys). |
+| **Kiểm tra độ tươi** | `dbt source freshness` | Kiểm tra xem bảng `raw.user_event_tracking` có được cập nhật trong vòng 24h qua không. |
+| **Lệnh All-in-One** | `dbt build` | **Lệnh tổng hợp:** Chạy tuần tự build models, run tests, kiểm tra freshness cho từng model theo đúng thứ tự DAG. |
+| **Tài liệu & Lineage** | `dbt docs generate` | Sinh file tài liệu catalog và biểu đồ phụ thuộc (Lineage Graph). |
+| | `dbt docs serve --port 8080` | Mở giao diện web tương tác dbt Docs tại cổng 8080 để khám phá Data Lineage. |
+
+---
+
+## 📁 5. Cấu trúc Thư mục Dự Án (Project Structure)
 
 ```
 laplaptech_pipeline/
-├── .github/workflows/     # GitHub Actions CI/CD
+├── .github/
+│   └── workflows/
+│       └── sync-pipeline.yml           # CI/CD tự động hóa (08:15 & 16:45 hằng ngày)
 ├── dbt/
+│   ├── macros/                         # dbt Jinja Macros dùng chung
+│   │   ├── clean_string.sql            # Macro chuẩn hóa chuỗi text (Regex)
+│   │   └── safe_divide.sql             # Macro chống lỗi chia cho 0
 │   ├── models/
-│   │   ├── bronze/        # Raw layer (6 models)
-│   │   ├── silver/        # Cleaned layer (11 models)
-│   │   └── gold/          # Analytics marts (10 models)
-│   ├── dbt_project.yml
-│   └── profiles.yml
+│   │   ├── bronze/                     # 6 models: Views mapping từ raw
+│   │   ├── silver/                     # 11 models: 10 views + 1 incremental table
+│   │   │   └── silver_user_event_tracking.sql
+│   │   ├── gold/                       # 12 models: Data Marts phục vụ Dashboard
+│   │   ├── exposures.yml               # Khai báo Lineage kết nối Streamlit
+│   │   ├── model_tests.yml             # Khai báo 26 bài test Data Quality
+│   │   └── sources.yml                 # Khai báo nguồn raw & Source Freshness
+│   ├── dbt_project.yml                 # Cấu hình dự án dbt
+│   └── profiles.yml                    # Cấu hình kết nối PostgreSQL
+├── docs/
+│   └── architecture/
+│       └── upgrade_plan.md             # Tài liệu kiến trúc & Nhật ký nâng cấp (ADR)
 ├── ingestion/
-│   └── clickhouse_to_postgres.py
+│   └── clickhouse_to_postgres.py       # Script trích xuất (TRUNCATE & Lookback Window)
 ├── streamlit_app/
-│   └── app.py             # Dashboard
-├── .env.example
-├── requirements.txt
-└── README.md
+│   └── app.py                          # Streamlit Analytics Dashboard
+├── SYSTEM_DESIGN_GUIDE.md              # Cẩm nang thiết kế hệ thống dữ liệu
+├── requirements.txt                    # Thư viện phụ thuộc
+├── .env.example                        # Mẫu cấu hình biến môi trường
+└── README.md                           # Tài liệu tổng quan dự án
 ```
+
+---
 
 ## 📝 Dataset Attribution
 
