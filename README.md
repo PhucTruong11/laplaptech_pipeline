@@ -221,32 +221,66 @@ Tất cả các lệnh dưới đây đều thực hiện từ thư mục `dbt/`
 laplaptech_pipeline/
 ├── .github/
 │   └── workflows/
-│       └── sync-pipeline.yml           # CI/CD tự động hóa (08:15 & 16:45 hằng ngày)
+│       └── sync-pipeline.yml                   # CI/CD tự động hóa (08:15 & 16:45 hằng ngày)
+├── .streamlit/
+│   └── config.toml                             # Cấu hình UI theme, server cho Streamlit
+├── .vscode/
+│   └── settings.json                           # Cấu hình IDE (khóa đường dẫn Python/dbt)
+├── assets/                                     # Chứa các file hình ảnh minh họa tài liệu
 ├── dbt/
-│   ├── macros/                         # dbt Jinja Macros dùng chung
-│   │   ├── clean_string.sql            # Macro chuẩn hóa chuỗi text (Regex)
-│   │   └── safe_divide.sql             # Macro chống lỗi chia cho 0
+│   ├── macros/                                 # dbt Jinja Macros dùng chung
+│   │   ├── clean_string.sql                    # Macro chuẩn hóa chuỗi text (Regex)
+│   │   └── safe_divide.sql                     # Macro chống lỗi chia cho 0
 │   ├── models/
-│   │   ├── bronze/                     # 6 models: Views mapping từ raw
-│   │   ├── silver/                     # 11 models: 10 views + 1 incremental table
-│   │   │   └── silver_user_event_tracking.sql
-│   │   ├── gold/                       # 12 models: Data Marts phục vụ Dashboard
-│   │   ├── exposures.yml               # Khai báo Lineage kết nối Streamlit
-│   │   ├── model_tests.yml             # Khai báo 26 bài test Data Quality
-│   │   └── sources.yml                 # Khai báo nguồn raw & Source Freshness
-│   ├── dbt_project.yml                 # Cấu hình dự án dbt
-│   └── profiles.yml                    # Cấu hình kết nối PostgreSQL
+│   │   ├── bronze/                             # 6 models: Base views lấy 1:1 từ dữ liệu raw
+│   │   │   ├── bronze_brand.sql                # Thông tin hãng laptop gốc
+│   │   │   ├── bronze_cpu_model.sql            # Thông tin vi xử lý (CPU) gốc
+│   │   │   ├── bronze_gpu_model.sql            # Thông tin card đồ họa (GPU) gốc
+│   │   │   ├── bronze_laptop_benchmark_result.sql # Kết quả chấm điểm benchmark gốc
+│   │   │   ├── bronze_laptop_model.sql         # Bảng mô tả cấu hình laptop gốc
+│   │   │   └── bronze_user_event_tracking.sql  # Dữ liệu sự kiện tracking gốc
+│   │   ├── silver/                             # 11 models: Làm sạch (Cleaned), bóc tách, khử trùng
+│   │   │   ├── silver_brand.sql                # Hãng laptop (đã chuẩn hóa text)
+│   │   │   ├── silver_cpu_model.sql            # CPU (đã chuẩn hóa text)
+│   │   │   ├── silver_gpu_model.sql            # GPU (đã chuẩn hóa text)
+│   │   │   ├── silver_laptop_benchmark_result.sql # Benchmark (ràng buộc khóa ngoại)
+│   │   │   ├── silver_laptop_model.sql         # Thông tin cấu hình laptop hoàn chỉnh
+│   │   │   ├── silver_user_event_tracking.sql  # (Incremental) Bóc tách JSON, dedup sự kiện
+│   │   │   ├── silver_comparison_session_device.sql # Nhóm thiết bị trong phiên so sánh
+│   │   │   ├── silver_comparison_sort_event.sql# Nhóm các sự kiện bộ lọc/sắp xếp
+│   │   │   ├── silver_device_traffic_event.sql # Trích xuất thông tin thiết bị/trình duyệt
+│   │   │   ├── silver_session_activity.sql     # Tổng hợp hoạt động theo mỗi phiên
+│   │   │   └── silver_session_funnel.sql       # Hành vi người dùng theo dạng phễu
+│   │   ├── gold/                               # 12 models: Data Marts tổng hợp cho phân tích BI
+│   │   │   ├── mart_battery_vs_interest.sql    # Tương quan dung lượng pin và độ quan tâm
+│   │   │   ├── mart_behavior_funnel_daily.sql  # Phễu chuyển đổi hành vi theo ngày
+│   │   │   ├── mart_brand_comparison.sql       # Đối sánh các hãng khi người dùng phân vân
+│   │   │   ├── mart_brand_interest.sql         # Mức độ quan tâm hãng theo lượt xem/click
+│   │   │   ├── mart_cpu_trend.sql              # Xu hướng lựa chọn hãng/số nhân CPU
+│   │   │   ├── mart_daily_site_kpis.sql        # KPI toàn trang web theo ngày (Traffic, Clicks)
+│   │   │   ├── mart_gpu_trend.sql              # Xu hướng ưu chuộng dung lượng GPU
+│   │   │   ├── mart_performance_efficiency.sql # Phân tích hiệu năng/thời lượng pin
+│   │   │   ├── mart_performance_ranking.sql    # Bảng xếp hạng điểm benchmark laptop
+│   │   │   ├── mart_search_analytics.sql       # Phân tích từ khóa tìm kiếm trên trang
+│   │   │   ├── mart_spec_popularity.sql        # Độ phổ biến của cấu hình (RAM, Storage, Màn hình)
+│   │   │   └── mart_user_os.sql                # Thống kê hệ điều hành của khách truy cập
+│   │   ├── exposures.yml                       # Khai báo Lineage kết nối Streamlit Dashboard
+│   │   ├── model_tests.yml                     # Khai báo 26 bài test Data Quality
+│   │   └── sources.yml                         # Khai báo nguồn raw & Source Freshness check
+│   ├── dbt_project.yml                         # Cấu hình dự án dbt
+│   └── profiles.yml                            # Cấu hình kết nối PostgreSQL
 ├── docs/
 │   └── architecture/
-│       └── upgrade_plan.md             # Tài liệu kiến trúc & Nhật ký nâng cấp (ADR)
+│       └── upgrade_plan.md                     # Tài liệu kiến trúc & Nhật ký nâng cấp (ADR)
 ├── ingestion/
-│   └── clickhouse_to_postgres.py       # Script trích xuất (TRUNCATE & Lookback Window)
+│   └── clickhouse_to_postgres.py               # Script trích xuất (TRUNCATE & Lookback Window)
 ├── streamlit_app/
-│   └── app.py                          # Streamlit Analytics Dashboard
-├── SYSTEM_DESIGN_GUIDE.md              # Cẩm nang thiết kế hệ thống dữ liệu
-├── requirements.txt                    # Thư viện phụ thuộc
-├── .env.example                        # Mẫu cấu hình biến môi trường
-└── README.md                           # Tài liệu tổng quan dự án
+│   └── app.py                                  # Streamlit Analytics Dashboard
+├── SYSTEM_DESIGN_GUIDE.md                      # Cẩm nang thiết kế hệ thống dữ liệu
+├── requirements.txt                            # Thư viện phụ thuộc
+├── .env.example                                # Mẫu cấu hình biến môi trường
+├── LICENSE                                     # Giấy phép nguồn mở MIT
+└── README.md                                   # Tài liệu tổng quan dự án
 ```
 
 ---
