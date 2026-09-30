@@ -143,8 +143,20 @@ flowchart TD
 - [x] **2.5 Chuẩn hóa với dbt Macros**: Tạo và triển khai thành công 2 macros `clean_string` và `safe_divide`, áp dụng nhất quán trên 5 models Silver và Gold.
 - [x] **2.6 Đồng bộ tài liệu và chú thích code (Code Comments)**: Thêm docstring và chú thích tiếng Việt chi tiết cho toàn bộ các hàm trong `ingestion/clickhouse_to_postgres.py` cũng như các file mô hình dbt.
 
-### 🟡 Sprint 3 — Định hướng mở rộng tương lai (Backlog / Optional) ⏳
-> *Ghi chú: Toàn bộ mục tiêu vận hành và phân tích kinh doanh của dự án đã được đáp ứng hoàn hảo tại Sprint 2. Các hạng mục dưới đây là backlog định hướng nếu muốn mở rộng dự án trong tương lai:*
+### 🟡 Sprint 3 — Định hướng Production-Grade nâng cao (Nuance Analysis) ⏳
+> *Ghi chú: Hệ thống hiện tại đã đáp ứng tốt các yêu cầu logic. Tuy nhiên, nếu muốn nâng cấp dự án lên chuẩn Production-Grade cấp độ Enterprise thực thụ, có 2 "nuance" (khía cạnh nhỏ nhưng quan trọng) về kiến trúc cần được giải quyết trong tương lai.*
+
+#### 3.1. Physical vs. Logical Idempotency ở Tầng RAW
+- **Hiện trạng:** Tầng Ingestion đang dùng cơ chế *Lookback* và *Append* thẳng vào RAW. Điều này dẫn tới việc RAW có thể chứa các physical rows (dòng vật lý) bị trùng lặp. Việc khử trùng lặp (Dedup) đang được phó thác cho hàm `ROW_NUMBER()` ở tầng Silver.
+- **Đánh giá:** Cách làm này **không sai** nếu chủ đích của ta là giữ RAW giống lịch sử nguồn (ingestion history) nhất có thể. Cần phân biệt rõ: *RAW physical idempotency* (không trùng lặp vật lý ở RAW) khác với *Silver logical idempotency* (dữ liệu sạch sẽ ở tầng xử lý logic).
+- **Giải pháp tương lai:** Để hệ thống hoàn hảo hơn, thay vì chỉ Append, Ingestion từ ClickHouse vào PostgreSQL có thể áp dụng mô hình **MERGE / UPSERT (Insert on Conflict)**. Khi đó RAW sẽ tự động được Physical Dedup ngay từ đầu vào.
+
+#### 3.2. Late Data Handling vs. Incremental Lookback
+- **Hiện trạng:** Tầng Ingestion có Lookback 1h, nhưng Incremental Model của Silver lại lọc cứng theo `timestamp > MAX(server_timestamp)`.
+- **Đánh giá:** *Lookback ở Ingestion không tự động có nghĩa là Downstream cũng reprocess (xử lý lại) phần lookback đó.* Giả sử một event có timestamp cũ bị trễ, nó vẫn được Ingestion hút về và *Append* vào RAW nhờ Lookback 1h. Tuy nhiên, vì timestamp của nó nhỏ hơn `MAX(server_timestamp)` hiện có ở Silver, Incremental filter sẽ bỏ qua nó! Hàm `ROW_NUMBER()` chỉ có tác dụng deduplicate những dòng *đã lọt vào CTE*, chứ không tự làm cho Incremental model quay lại đọc dữ liệu cũ.
+- **Giải pháp tương lai:** Khái niệm *Late data handling ≠ Lookback ở một layer*. Cần thiết kế lại logic Incremental của dbt sao cho có thể xử lý Lookback đồng bộ (ví dụ: filter ở Silver cũng phải lùi một khoảng thời gian trước MAX, sau đó áp dụng UPSERT/MERGE để cập nhật/xóa trùng lặp ở đích).
+
+#### 3.3. Các tính năng Backlog khác (Tùy chọn)
 - [ ] `dbt seeds` (`seeds/laptop_manual_price.csv`): Tạo bảng giá tham chiếu thủ công để phân tích tương quan cấu hình/giá tiền (Price-to-Performance Ratio) khi có nguồn thu thập giá bán lẻ.
 - [ ] `dbt snapshots` (SCD Type 2): Lưu vết biến động lịch sử thông số hoặc giá bán laptop theo thời gian.
 - [ ] `dbt-expectations`: Thư viện kiểm thử nâng cao theo phân phối thống kê (chuẩn hóa outlier, độ lệch chuẩn).
