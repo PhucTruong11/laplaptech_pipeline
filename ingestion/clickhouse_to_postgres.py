@@ -241,9 +241,26 @@ def load_to_postgres(
     try:
         if truncate_first:
             with engine.begin() as conn:
-                # TRUNCATE giữ nguyên view Bronze, đảm bảo tính ổn định (Idempotency)
-                conn.execute(text(f"TRUNCATE TABLE {RAW_SCHEMA}.{table_name}"))
-                logger.info(f"  → Đã dọn sạch bảng (TRUNCATE): {table_name}")
+                # Kiểm tra bảng có tồn tại chưa trước khi TRUNCATE
+                # Lần chạy đầu tiên (fresh database) sẽ bỏ qua TRUNCATE vì bảng chưa tồn tại
+                table_exists = conn.execute(
+                    text(
+                        f"""
+                        SELECT EXISTS (
+                            SELECT 1 FROM information_schema.tables
+                            WHERE table_schema = '{RAW_SCHEMA}'
+                            AND table_name = '{table_name}'
+                        )
+                        """
+                    )
+                ).scalar()
+
+                if table_exists:
+                    # TRUNCATE giữ nguyên view Bronze, đảm bảo tính ổn định (Idempotency)
+                    conn.execute(text(f"TRUNCATE TABLE {RAW_SCHEMA}.{table_name}"))
+                    logger.info(f"  → Đã dọn sạch bảng (TRUNCATE): {table_name}")
+                else:
+                    logger.info(f"  → Bảng chưa tồn tại, bỏ qua TRUNCATE (lần chạy đầu tiên): {table_name}")
 
         # Nạp dữ liệu vào bảng bằng cơ chế bulk insert
         df.to_sql(
