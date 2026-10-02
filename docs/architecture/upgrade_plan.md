@@ -160,7 +160,7 @@ flowchart TD
 - [ ] `dbt seeds` (`seeds/laptop_manual_price.csv`): Tạo bảng giá tham chiếu thủ công để phân tích tương quan cấu hình/giá tiền (Price-to-Performance Ratio) khi có nguồn thu thập giá bán lẻ.
 - [ ] `dbt snapshots` (SCD Type 2): Lưu vết biến động lịch sử thông số hoặc giá bán laptop theo thời gian.
 - [ ] `dbt-expectations`: Thư viện kiểm thử nâng cao theo phân phối thống kê (chuẩn hóa outlier, độ lệch chuẩn).
-- [ ] Kết nối thêm BI tool như Metabase vào PostgreSQL Supabase để đối sánh với Streamlit.
+- [ ] Kết nối thêm BI tool như Metabase vào PostgreSQL Neon để đối sánh với Streamlit.
 
 ---
 

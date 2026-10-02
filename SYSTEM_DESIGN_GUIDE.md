@@ -72,7 +72,7 @@ Dữ liệu đem về phải có chỗ chứa. Chọn sai kiến trúc ở đây
 - `public_gold`: Lớp Data Marts tổng hợp nghiệp vụ, phục vụ trực tiếp BI.
 
 ### Công nghệ (Tech Stack) & Lựa chọn thay thế:
-- **Quy mô nhỏ (GBs):** **PostgreSQL (Supabase)**, **MySQL** (Tuy là OLTP nhưng gánh tốt data nhỏ, Supabase cung cấp Postgres serverless rất tiện lợi cho Data Platform mini).
+- **Quy mô nhỏ (GBs):** **PostgreSQL (Neon Tech)**, **MySQL** (Tuy là OLTP nhưng gánh tốt data nhỏ, Neon cung cấp Postgres serverless với tính năng Branching rất tiện lợi cho Data Platform mini).
 - **Data Warehouse (Đám mây - TBs):** **Google BigQuery**, **Snowflake**, **Amazon Redshift**.
 - **Data Lake (Chi phí rẻ):** **AWS S3**, **Google Cloud Storage (GCS)**, **Azure Data Lake Storage (ADLS)**.
 - **Lakehouse Formats:** **Apache Iceberg**, **Delta Lake**, **Apache Hudi**.
@@ -146,7 +146,7 @@ Khi có hàng chục bảng cần chạy mỗi ngày, phải có hệ thống đ
 sequenceDiagram
     participant GH as GitHub Actions (08:15 & 16:45 VN)
     participant Ingestion as Python Script
-    participant Warehouse as PostgreSQL (Supabase)
+    participant Warehouse as PostgreSQL (Neon)
     participant Transform as dbt Core
     participant App as Streamlit Dashboard
 
