@@ -6,5 +6,18 @@
   "dbt.envVars": {
     "DBT_ALLOW_EXPERIMENTAL_ADAPTERS": "true",
     "POSTGRES_PASSWORD": "default_password"
-  }
+  },
+  "sqltools.connections": [
+    {
+      "ssh": "Disabled",
+      "previewLimit": 50,
+      "server": "aws-0-ap-southeast-1.pooler.supabase.com",
+      "port": 5432,
+      "driver": "PostgreSQL",
+      "name": "LapLapTech (Supabase)",
+      "database": "postgres",
+      "username": "postgres.yiatonjlycvwhzflmoil",
+      "password": "truongtrongPhuc1#"
+    }
+  ]
 }

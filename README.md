@@ -97,7 +97,7 @@ sequenceDiagram
   - **Chunking Bulk Insert:** Chia nhỏ từng lô 10.000 dòng (`chunksize=10000`, `method='multi'`) giúp tiết kiệm RAM và tăng tốc độ ghi dữ liệu.
 
 ### 2.2. Kho lưu trữ (Data Warehouse)
-- **Công nghệ đang dùng:** **PostgreSQL (Supabase trên Cloud hoặc PostgreSQL Local)**.
+- **Công nghệ đang dùng:** **PostgreSQL (Neon Tech Serverless Cloud)**.
 - **Cách tổ chức:** Phân chia thành các schema độc lập theo Medallion Architecture: `raw`, `public_bronze`, `public_silver`, `public_gold`.
 
 ### 2.3. Tầng Biến đổi dữ liệu (Transform với dbt Core)
