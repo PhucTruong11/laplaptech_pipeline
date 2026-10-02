@@ -1,0 +1,10 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+  "dbt.dbtPythonPath": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+  "dbt.dbtPath": "${workspaceFolder}\\venv\\Scripts\\dbt.exe",
+  "dbt.enableFusion": false,
+  "dbt.envVars": {
+    "DBT_ALLOW_EXPERIMENTAL_ADAPTERS": "true",
+    "POSTGRES_PASSWORD": "default_password"
+  }
+}

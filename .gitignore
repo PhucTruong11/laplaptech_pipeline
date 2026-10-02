@@ -39,3 +39,4 @@ scratch/
 data/
 
 logs/
+dbt/.user.yml
