@@ -70,8 +70,9 @@ WITH parsed AS (
     {% if is_incremental() %}
     -- Lọc gia tăng: Khi chạy ở chế độ incremental, chỉ quét những sự kiện 
     -- có timestamp server nhận mới hơn mốc lớn nhất đang tồn tại trong bảng đích ({{ this }}).
-    AND to_timestamp(event_received_on_server_timestamp) > (
-        SELECT MAX(server_timestamp) FROM {{ this }}
+    AND to_timestamp(event_received_on_server_timestamp) >= (
+        SELECT COALESCE(MAX(server_timestamp) - INTERVAL '2 hour', '1970-01-01'::timestamp) 
+        FROM {{ this }}
     )
     {% endif %}
 )
