@@ -1,15 +1,10 @@
 """
 LaplapTech Pipeline — ClickHouse to PostgreSQL Ingestion
-=========================================================
-Script chịu trách nhiệm trích xuất dữ liệu (Extract) từ nguồn ClickHouse 
-và tải (Load) nguyên bản vào schema `raw` của Data Warehouse PostgreSQL (Local / Supabase).
+Script chịu trách nhiệm trích xuất dữ liệu (Extract) từ nguồn ClickHouse ``
+và tải (Load) nguyên bản vào schema `raw` của PostgreSQL
 
-Chiến lược nạp dữ liệu:
 - Full Refresh (TRUNCATE + Append): Dành cho các bảng danh mục (dimension) và bảng tra cứu nhỏ.
 - Incremental Load (Watermark + Lookback Window): Dành cho bảng sự kiện lớn (user_event_tracking).
-
-Cách chạy thủ công:
-    python ingestion/clickhouse_to_postgres.py
 """
 
 import os
@@ -21,10 +16,6 @@ import clickhouse_connect
 import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
-
-# ---------------------------------------------------------------------------
-# Cấu hình & Biến toàn cục (Configuration)
-# ---------------------------------------------------------------------------
 
 # Tải các biến môi trường từ file .env
 load_dotenv()
@@ -54,11 +45,8 @@ INCREMENTAL_TABLES = {
 # Tên schema đích trong PostgreSQL để chứa dữ liệu thô ban đầu
 RAW_SCHEMA = "raw"
 
-# ---------------------------------------------------------------------------
+
 # Các hàm tiện ích & Khởi tạo kết nối (Helpers & Connections)
-# ---------------------------------------------------------------------------
-
-
 def require_env(name: str) -> str:
     """
     Lấy giá trị của một biến môi trường bắt buộc.
@@ -139,11 +127,7 @@ def ensure_schema_exists(engine):
     logger.info(f"Schema '{RAW_SCHEMA}' đã sẵn sàng.")
 
 
-# ---------------------------------------------------------------------------
 # Trích xuất và Nạp dữ liệu (Extraction & Loading)
-# ---------------------------------------------------------------------------
-
-
 def extract_full_table(ch_client, table_name: str) -> pd.DataFrame:
     """
     Trích xuất toàn bộ dữ liệu từ 1 bảng trong ClickHouse.
@@ -278,11 +262,115 @@ def load_to_postgres(
         raise
 
 
-# ---------------------------------------------------------------------------
+def load_incremental_to_postgres(
+    df: pd.DataFrame, table_name: str, engine, primary_key: str = "id"
+):
+    """
+    Nạp dữ liệu gia tăng (Incremental) vào PostgreSQL theo cơ chế Physical Idempotency (Atomic Upsert).
+    
+    Giải quyết vấn đề Sprint 3 (Physical vs Logical Idempotency):
+    1. Dedup nội bộ DataFrame vừa trích xuất để đảm bảo không trùng ID trong batch.
+    2. Nếu bảng RAW chưa tồn tại: nạp thẳng bằng bulk insert.
+    3. Nếu bảng RAW đã có:
+       - Tạo bảng tạm Staging `_stg_<table_name>`.
+       - Nạp lô mới vào Staging.
+       - Thực hiện Transaction nguyên tử: DELETE các khóa trùng trong bảng RAW rồi INSERT dữ liệu mới.
+       - DROP bảng Staging trong khối finally để bảo vệ dung lượng 1GB của Neon.
+    
+    → Kết quả: Chạy Ingestion bao nhiêu lần thì bảng RAW vẫn giữ nguyên vẹn dữ liệu chuẩn,
+      không bị phình to dung lượng bởi các bản ghi trùng lặp trong cửa sổ Lookback!
+    """
+    if df.empty:
+        logger.info(f"  → 0 dòng mới cần nạp cho bảng {table_name}")
+        return
+
+    # 1. Khử trùng lặp nội bộ trong chính lô dữ liệu vừa trích xuất
+    initial_len = len(df)
+    df = df.drop_duplicates(subset=[primary_key], keep="last")
+    if len(df) < initial_len:
+        logger.info(f"  → Đã lọc bỏ {initial_len - len(df):,} dòng trùng nội bộ trong batch.")
+
+    logger.info(f"Đang nạp {len(df):,} dòng gia tăng (Staging Upsert) vào {RAW_SCHEMA}.{table_name}...")
+
+    # 2. Kiểm tra xem bảng chính đã tồn tại trong PostgreSQL chưa
+    with engine.connect() as conn:
+        table_exists = conn.execute(
+            text(
+                f"""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = '{RAW_SCHEMA}'
+                    AND table_name = '{table_name}'
+                )
+                """
+            )
+        ).scalar()
+
+    if not table_exists:
+        # Lần chạy đầu tiên khi chưa có bảng: nạp trực tiếp
+        df.to_sql(
+            table_name,
+            con=engine,
+            schema=RAW_SCHEMA,
+            if_exists="append",
+            index=False,
+            chunksize=10000,
+            method="multi",
+        )
+        logger.info(f"  → Khởi tạo bảng và nạp thành công {len(df):,} dòng vào {RAW_SCHEMA}.{table_name}")
+        return
+
+    # 3. Bảng đã tồn tại: Sử dụng bảng Staging để Upsert nguyên tử
+    stg_table = f"_stg_{table_name}"
+    with engine.begin() as conn:
+        conn.execute(text(f"DROP TABLE IF EXISTS {RAW_SCHEMA}.{stg_table}"))
+        conn.execute(
+            text(f"CREATE TABLE {RAW_SCHEMA}.{stg_table} (LIKE {RAW_SCHEMA}.{table_name} INCLUDING DEFAULTS)")
+        )
+
+    try:
+        # Bulk load dữ liệu mới vào bảng Staging
+        df.to_sql(
+            stg_table,
+            con=engine,
+            schema=RAW_SCHEMA,
+            if_exists="append",
+            index=False,
+            chunksize=10000,
+            method="multi",
+        )
+
+        with engine.begin() as conn:
+            # Xóa các dòng cũ trong RAW có ID trùng với lô mới (trong cửa sổ Lookback)
+            del_res = conn.execute(
+                text(
+                    f"""
+                    DELETE FROM {RAW_SCHEMA}.{table_name}
+                    WHERE {primary_key} IN (SELECT {primary_key} FROM {RAW_SCHEMA}.{stg_table})
+                    """
+                )
+            )
+            deleted_count = del_res.rowcount
+            if deleted_count > 0:
+                logger.info(f"  → Đã cập nhật/thay thế {deleted_count:,} dòng cũ trong cửa sổ Lookback.")
+
+            # Chèn toàn bộ dữ liệu mới từ Staging vào bảng RAW
+            conn.execute(
+                text(
+                    f"""
+                    INSERT INTO {RAW_SCHEMA}.{table_name}
+                    SELECT * FROM {RAW_SCHEMA}.{stg_table}
+                    """
+                )
+            )
+            logger.info(f"  → Nạp thành công {len(df):,} dòng vào {RAW_SCHEMA}.{table_name} (Physical Idempotent)")
+    finally:
+        # Xóa ngay bảng Staging để giải phóng triệt để dung lượng trên Neon
+        with engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE IF EXISTS {RAW_SCHEMA}.{stg_table}"))
+
+
 # Luồng thực thi chính (Main Pipeline)
-# ---------------------------------------------------------------------------
-
-
 def run_pipeline():
     """
     Điều phối toàn bộ luồng Ingestion (ClickHouse → PostgreSQL):
@@ -315,11 +403,11 @@ def run_pipeline():
             logger.error(f"Lỗi khi xử lý bảng {table_name}: {e}")
             raise
 
-    # 4. Nạp bảng Incremental (Fact tables — Deduplication sẽ do dbt phụ trách)
+    # 4. Nạp bảng Incremental (Fact tables — Áp dụng Staging Upsert chống duplicate RAW)
     for table_name, ts_col in INCREMENTAL_TABLES.items():
         try:
             df = extract_incremental(ch_client, table_name, ts_col, engine)
-            load_to_postgres(df, table_name, engine, truncate_first=False)
+            load_incremental_to_postgres(df, table_name, engine, primary_key="id")
         except Exception as e:
             logger.error(f"Lỗi khi xử lý bảng {table_name}: {e}")
             raise

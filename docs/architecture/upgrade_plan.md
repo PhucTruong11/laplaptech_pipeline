@@ -155,13 +155,6 @@ flowchart TD
 - **Hiện trạng:** Tầng Ingestion có Lookback 1h, nhưng Incremental Model của Silver lại lọc cứng theo `timestamp > MAX(server_timestamp)`.
 - **Đánh giá:** *Lookback ở Ingestion không tự động có nghĩa là Downstream cũng reprocess (xử lý lại) phần lookback đó.* Giả sử một event có timestamp cũ bị trễ, nó vẫn được Ingestion hút về và *Append* vào RAW nhờ Lookback 1h. Tuy nhiên, vì timestamp của nó nhỏ hơn `MAX(server_timestamp)` hiện có ở Silver, Incremental filter sẽ bỏ qua nó! Hàm `ROW_NUMBER()` chỉ có tác dụng deduplicate những dòng *đã lọt vào CTE*, chứ không tự làm cho Incremental model quay lại đọc dữ liệu cũ.
 - **Giải pháp tương lai:** Khái niệm *Late data handling ≠ Lookback ở một layer*. Cần thiết kế lại logic Incremental của dbt sao cho có thể xử lý Lookback đồng bộ (ví dụ: filter ở Silver cũng phải lùi một khoảng thời gian trước MAX, sau đó áp dụng UPSERT/MERGE để cập nhật/xóa trùng lặp ở đích).
-
-#### 3.3. Các tính năng Backlog khác (Tùy chọn)
-- [ ] `dbt seeds` (`seeds/laptop_manual_price.csv`): Tạo bảng giá tham chiếu thủ công để phân tích tương quan cấu hình/giá tiền (Price-to-Performance Ratio) khi có nguồn thu thập giá bán lẻ.
-- [ ] `dbt snapshots` (SCD Type 2): Lưu vết biến động lịch sử thông số hoặc giá bán laptop theo thời gian.
-- [ ] `dbt-expectations`: Thư viện kiểm thử nâng cao theo phân phối thống kê (chuẩn hóa outlier, độ lệch chuẩn).
-- [ ] Kết nối thêm BI tool như Metabase vào PostgreSQL Neon để đối sánh với Streamlit.
-
 ---
 
 ## 💻 5. Hướng Dẫn Chạy Toàn Bộ Hệ Thống (Pipeline Cheatsheet)
