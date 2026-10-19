@@ -1,4 +1,4 @@
--- Gold: mart_user_os
+-- Gold: gold_user_os
 -- User OS and device distribution
 
 SELECT
@@ -12,6 +12,5 @@ SELECT
     )                                           AS session_pct
 
 FROM {{ ref('silver_session_activity') }}
-WHERE user_os IS NOT NULL
 GROUP BY user_os, user_device_type
 ORDER BY sessions DESC

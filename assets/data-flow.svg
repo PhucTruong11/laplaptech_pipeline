@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="664" viewBox="0 0 1040 664" role="img" aria-labelledby="title description">
+  <title id="title">LaplapTech data pipeline</title>
+  <desc id="description">ClickHouse feeds Python ingestion on a GitHub Actions runner. Python loads raw tables in Neon PostgreSQL. The runner then runs dbt source freshness and build with tests. SQL executes inside Neon through raw, six Bronze views, twelve Silver views and one incremental table, then twelve Gold tables. A separately launched Streamlit app reads all twelve Gold models with a 300 second query cache. Solid arrows show data dependencies; dashed arrows show execution order or SQL control.</desc>
+  <!-- Edit this SVG directly; no external fonts, HTML labels or rendering dependencies. -->
+  <defs>
+    <marker id="data-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L8 4L0 8Z" fill="#69dbc6"/>
+    </marker>
+    <marker id="control-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0L8 4L0 8Z" fill="#b5baf5"/>
+    </marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; }
+      .heading { fill: #f0f5ff; font-size: 27px; font-weight: 700; }
+      .section { fill: #bac8df; font-size: 14px; font-weight: 700; letter-spacing: 1px; }
+      .name { fill: #f0f5ff; font-size: 20px; font-weight: 700; }
+      .detail { fill: #bac8df; font-size: 16px; }
+      .note { fill: #a5b6cf; font-size: 15px; }
+      .data { fill: none; stroke: #69dbc6; stroke-width: 2; marker-end: url(#data-arrow); }
+      .control { fill: none; stroke: #b5baf5; stroke-width: 2; stroke-dasharray: 5 5; marker-end: url(#control-arrow); }
+    </style>
+  </defs>
+  <rect width="1040" height="664" rx="16" fill="#0c1424"/>
+  <text x="32" y="45" class="heading">From source to analytics</text>
+  <text x="32" y="72" class="note">Batch ELT · ClickHouse / Python / dbt / PostgreSQL / Streamlit</text>
+
+  <!-- Execution belongs to the runner; the warehouse remains on Neon. -->
+  <rect x="304" y="96" width="704" height="154" rx="12" fill="#151e34" stroke="#3d496b"/>
+  <text x="328" y="122" class="section">GITHUB ACTIONS RUNNER · 2 RUNS / DAY</text>
+
+  <rect x="32" y="146" width="224" height="82" rx="10" fill="#15283a" stroke="#477da1"/>
+  <text x="144" y="177" text-anchor="middle" class="name">ClickHouse</text>
+  <text x="144" y="204" text-anchor="middle" class="detail">6 source tables</text>
+
+  <rect x="328" y="146" width="272" height="82" rx="10" fill="#19332f" stroke="#448d7a"/>
+  <text x="464" y="177" text-anchor="middle" class="name">Python ingestion</text>
+  <text x="464" y="204" text-anchor="middle" class="detail">Full refresh + event upsert</text>
+  <path d="M256 187H326" class="data"/>
+
+  <rect x="648" y="146" width="336" height="82" rx="10" fill="#292742" stroke="#7770b4"/>
+  <text x="816" y="177" text-anchor="middle" class="name">dbt CLI</text>
+  <text x="816" y="204" text-anchor="middle" class="detail">source freshness → build + tests</text>
+  <path d="M600 187H646" class="control"/>
+
+  <rect x="32" y="306" width="976" height="178" rx="12" fill="#111f2e" stroke="#325773"/>
+  <path d="M464 228V280H16V412H54" class="data"/>
+  <rect x="194" y="263" width="205" height="26" rx="5" fill="#0c1424"/>
+  <text x="296" y="282" text-anchor="middle" class="note">Transaction per raw table</text>
+  <path d="M816 228V304" class="control"/>
+  <text x="833" y="278" class="note">Execute SQL</text>
+
+  <text x="56" y="337" class="section">NEON · POSTGRESQL WAREHOUSE</text>
+  <text x="984" y="337" text-anchor="end" class="note">31 dbt models · 47 data tests</text>
+
+  <rect x="56" y="368" width="200" height="88" rx="10" fill="#19332f" stroke="#448d7a"/>
+  <text x="156" y="401" text-anchor="middle" class="name">raw</text>
+  <text x="156" y="430" text-anchor="middle" class="detail">5 snapshots + events</text>
+
+  <rect x="280" y="368" width="200" height="88" rx="10" fill="#32291f" stroke="#9c7951"/>
+  <text x="380" y="401" text-anchor="middle" class="name">Bronze</text>
+  <text x="380" y="430" text-anchor="middle" class="detail">6 views</text>
+  <path d="M256 412H278" class="data"/>
+
+  <rect x="504" y="368" width="232" height="88" rx="10" fill="#252f40" stroke="#8997b2"/>
+  <text x="620" y="401" text-anchor="middle" class="name">Silver</text>
+  <text x="620" y="430" text-anchor="middle" class="detail">12 views + 1 incremental</text>
+  <path d="M480 412H502" class="data"/>
+
+  <rect x="760" y="368" width="224" height="88" rx="10" fill="#332d1d" stroke="#c5a75a"/>
+  <text x="872" y="401" text-anchor="middle" class="name">Gold</text>
+  <text x="872" y="430" text-anchor="middle" class="detail">12 tables · gold_*</text>
+  <path d="M736 412H758" class="data"/>
+
+  <path d="M872 456V548" class="data"/>
+  <text x="854" y="520" text-anchor="end" class="note">Read queries</text>
+  <rect x="648" y="550" width="360" height="80" rx="10" fill="#15283a" stroke="#477da1"/>
+  <text x="828" y="582" text-anchor="middle" class="name">Streamlit dashboard</text>
+  <text x="828" y="609" text-anchor="middle" class="detail">12 Gold models · query cache 300s</text>
+
+  <path d="M32 550H76" class="data"/>
+  <text x="90" y="555" class="detail">Data / model dependency</text>
+  <path d="M32 583H76" class="control"/>
+  <text x="90" y="588" class="detail">Execution order / SQL control</text>
+  <text x="32" y="625" class="note">Streamlit runs separately from the sync workflow.</text>
+</svg>

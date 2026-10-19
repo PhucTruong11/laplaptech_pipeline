@@ -2,7 +2,7 @@
 
 SELECT
     session_id,
-    server_timestamp::date                      AS event_date,
+    {{ business_date('server_timestamp') }}                      AS event_date,
     COALESCE(user_os, 'Unknown')                AS user_os,
     COALESCE(user_device_type, 'Unknown')       AS device_type,
     COALESCE(user_browser, 'Unknown')           AS browser,

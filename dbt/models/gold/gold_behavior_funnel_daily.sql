@@ -1,4 +1,4 @@
--- Gold: mart_behavior_funnel_daily
+-- Gold: gold_behavior_funnel_daily
 -- Daily funnel conversion rates
 
 SELECT

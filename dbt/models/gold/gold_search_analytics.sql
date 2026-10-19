@@ -1,4 +1,4 @@
--- Gold: mart_search_analytics
+-- Gold: gold_search_analytics
 -- Aggregates search keywords to identify Top Searches and Potential Product Gaps
 
 SELECT

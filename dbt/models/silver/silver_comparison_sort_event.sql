@@ -5,7 +5,7 @@ SELECT
     sort_by,
     sort_direction,
     server_timestamp,
-    server_timestamp::date                      AS event_date
+    {{ business_date('server_timestamp') }}                      AS event_date
 
 FROM {{ ref('silver_user_event_tracking') }}
 WHERE page_name = 'CompareDevice'

@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pandas as pd
+from jinja2 import Environment
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
@@ -251,10 +252,16 @@ class PostgresTests(unittest.TestCase):
                 ('2026-10-18T17:02:00Z', 's1', 'pageview', 'CompareDevice', NULL),
                 ('2026-10-18T17:03:00Z', 's2', 'pageview', 'CompareDevice', NULL)
             """))
-            path = Path(__file__).resolve().parents[1] / "dbt/models/gold/mart_daily_site_kpis.sql"
-            sql = path.read_text(encoding="utf-8").replace(
-                "{{ ref('silver_user_event_tracking') }}", self.relation("tracking")
-            )
+            path = Path(__file__).resolve().parents[1] / "dbt/models/gold/gold_daily_site_kpis.sql"
+            root = path.parents[3]
+            env = Environment()
+            macros = env.from_string((root / 'dbt/macros/business_time.sql').read_text()).make_module(
+                {'var': lambda name, default: default})
+            day_sql = env.from_string((root / 'dbt/models/silver/silver_session_day.sql').read_text()).render(
+                ref=lambda name: self.relation('tracking'), business_date=macros.business_date)
+            conn.execute(text(f'CREATE VIEW {self.relation("session_day")} AS {day_sql}'))
+            sql = env.from_string(path.read_text(encoding='utf-8')).render(
+                ref=lambda name: self.relation('session_day'))
             rows = {r["event_date"]: r for r in conn.execute(text(sql)).mappings()}
         self.assertEqual(rows[date(2026, 10, 18)]["total_events"], 1)
         today = rows[date(2026, 10, 19)]

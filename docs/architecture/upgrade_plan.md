@@ -2,6 +2,8 @@
 
 Cập nhật 19/10/2026. Project phục vụ học và nghiên cứu. Ingestion đã được củng cố và kiểm thử local; chưa tuyên bố production-grade hoặc đã xác nhận toàn bộ dữ liệu sau sửa trên Neon.
 
+Bản nâng cấp mới nhất: [Gold, metric, lock và dashboard](../guides/gold_upgrade.md), [bằng chứng dev](../validation/dev_run_2026-10-19.json).
+
 Tài liệu chính: [data flow hiện tại](data_flow.md), [việc còn lại](remaining_work.md), [hướng dẫn vận hành](../guides/ingestion_operations.md).
 
 ## 1. Trạng thái triển khai
@@ -15,30 +17,17 @@ Tài liệu chính: [data flow hiện tại](data_flow.md), [việc còn lại](
 | Lookback | Có | Raw mặc định 7.200 giây cấu hình env; Silver hiện cố định 2 giờ |
 | Backfill CLI | Có | `--start`/`--end` có timezone, khoảng đầu bao gồm/cuối không bao gồm |
 | Neon connection | Có | SSL config, URL.create, database provisioning mặc định tắt |
-| dbt | Có | 29 model, 34 data test đã parse, 6 source, 1 exposure |
+| dbt | Có | 31 model, 47 data test pass trên dev, 6 source, 1 exposure |
 | Freshness | Có | Workflow gọi riêng trước build; warn 24 giờ/error 48 giờ |
 | Validate CI | Có | PostgreSQL test riêng, Python tests, compile và dbt parse không cần Neon secrets |
-| Python tests | Đã chạy local | 21/21 pass: 12 unit/config và 9 PostgreSQL integration |
-| Daily KPI session-day | Có | Event count thực tế, co-reach rates, ngày Việt Nam; SQL fixture pass |
+| Python tests | Đã chạy local | 28/28 pass, gồm 9 PostgreSQL integration và 2 dashboard AppTest |
+| Daily KPI session-day | Có | Session-day dùng chung; đã đối soát fixture và nguồn thật trên dev |
 | Airflow Docker | Chưa | Hướng học tiếp, chưa có runtime/DAG được triển khai |
-| End-to-end dữ liệu thật sau sửa | Chưa xác nhận | Chưa chạy ingestion/build mới trên ClickHouse/Neon trong đợt sửa |
+| End-to-end dữ liệu thật sau sửa | Đã xác nhận trên dev local | ClickHouse 784.455 event → local PostgreSQL; full build + replay pass; Neon chưa deploy |
 
 ## 2. Kiến trúc hiện tại và ranh giới
 
-```mermaid
-flowchart TD
-    T["main push / manual main / lịch 2 lần/ngày"] --> GH["GitHub Actions: concurrency group theo warehouse"]
-    GH --> I["Python ingestion"]
-    I --> RAW["Neon raw: 5 bảng snapshot và 1 bảng event upsert"]
-    I -->|Thành công| F["dbt source freshness"]
-    F -->|Không có error| BUILD["dbt build và data tests"]
-    BUILD -.-> DB["SQL chạy trong PostgreSQL Neon"]
-    RAW --> B["6 Bronze views"]
-    B --> S["10 Silver views và 1 incremental table"]
-    S --> G["12 Gold tables"]
-    G --> APP["Streamlit: query 8 mart trực tiếp, cache 300 giây"]
-    GH -.-> A["Lưu artifact dbt đã sinh: always"]
-```
+![Data flow: ClickHouse → ingestion → Neon raw/Bronze/Silver/Gold → Streamlit](../../assets/data-flow.svg)
 
 Đây là sơ đồ tổng hợp; các nhánh transformation thực tế theo `ref()` nằm trong [data flow](data_flow.md). Bronze chỉ ánh xạ raw, không tự enforce contract. SQL transformation chạy trong PostgreSQL; runner chỉ điều khiển và gửi SQL.
 
@@ -80,7 +69,7 @@ Nếu raw backfill cũ hơn watermark Silver trừ 2 giờ, incremental Silver c
 
 KPI theo ngày Việt Nam dựa trên server timestamp, đếm event từ event table và session hoạt động trong từng ngày. SUM daily session là session-days, không phải unique session toàn thời gian.
 
-Rates là cùng đạt bước trong ngày. Funnel session cũ vẫn đo step reach theo session-start date, không phải sequential conversion; dashboard và các mart khác còn cần đồng bộ timezone/nhãn.
+Rates là cùng đạt bước trong ngày. Funnel đã dùng cùng session-day; các nhánh ngày/tháng dùng timezone nghiệp vụ. Dashboard đã sửa nhãn theo grain và dữ liệu thiếu; vẫn không coi reach là sequential conversion.
 
 ### ADR 07 — Tách CI khỏi lịch ghi warehouse
 
@@ -100,11 +89,12 @@ Các mục Sprint 1–3 dưới đây tóm tắt ghi chép trước đợt sửa
 
 | Giai đoạn | Ghi chép lịch sử | Trạng thái sau sửa |
 |---|---|---|
-| Sprint 1 | Thêm 26 generic tests, source freshness, exposure và dbt docs | Hiện có 34 data test đã parse; freshness được gọi trong workflow |
+| Sprint 1 | Thêm 26 generic tests, source freshness, exposure và dbt docs | Hiện có 47 data test pass trên dev; freshness được gọi trong workflow |
 | Sprint 2 | TRUNCATE thay DROP, lookback raw 1 giờ, Silver dedup/incremental, macros | Full refresh nay atomic; raw mặc định 2 giờ; dedup trước load theo version |
 | Sprint 3 | Silver lookback 2 giờ và staging upsert raw | Staging nay có UUID và chung transaction; kiểm tra version cũ/xung đột |
 | Ghi chép cũ | Có ghi nhận dọn 188 duplicate và raw còn 0 duplicate trên Neon | Không thực hiện lại hoặc xác minh thao tác dọn này trong đợt sửa hiện tại |
-| 19/10/2026 | Củng cố ingestion, workflow, KPI và tests local | 21 Python tests pass; 29 model/34 data test parse thành công |
+| 19/10/2026, trước Gold upgrade | Củng cố ingestion, workflow, KPI và tests local | 21 Python tests pass; 29 model/34 data test parse thành công |
+| 19/10/2026, Gold upgrade | Taxonomy, timezone/metric, dependency lock và dashboard | 31 model/47 data test, 28 Python test pass; nguồn thật trên dev và fixture |
 
 Artifact trước đợt sửa từng ghi nhận 29 model success, 26 data test pass và 1 exposure no-op. Không được cộng các loại tài nguyên đó thành “56 tests”. Các con số giảm thời gian 95% hoặc khoảng 13 giây trong ghi chép cũ cần benchmark lại trên môi trường/dataset hiện tại.
 
@@ -112,14 +102,15 @@ Artifact trước đợt sửa từng ghi nhận 29 model success, 26 data test 
 
 ### Giai đoạn A — Đọc đúng và kiểm chứng dữ liệu
 
-- [ ] Sửa dashboard Today, All-Time session-days, N/A, literal search và chart scope.
-- [ ] Đồng bộ timezone/grain giữa các model cần cùng calendar.
-- [ ] Khóa dependencies phù hợp nền tảng và chạy một lượt end-to-end dev có bằng chứng.
-- [ ] Bổ sung đối soát raw-Silver ID/version và theo dõi row bị loại.
+- [x] Sửa dashboard Today, session-days, N/A, literal search, chart scope; dùng đủ 12 Gold model.
+- [x] Đồng bộ timezone và dùng chung session-day cho daily KPI/funnel.
+- [x] Khóa 85 dependency; cài sạch Windows/Linux; full build/replay nguồn thật và fixture có bằng chứng.
+- [x] Đối soát raw-Silver ID/version và Gold totals; theo dõi rejected rows/quarantine riêng chưa triển khai.
 
 ### Giai đoạn B — Airflow Docker local
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
     SRC["ClickHouse"] --> ING["Airflow task: ingestion"]
     ING --> FR["Task: source freshness"]
@@ -141,7 +132,7 @@ flowchart LR
 - [ ] Migration raw NOT NULL/unique ID, index watermark sau khi đối chiếu dữ liệu cũ.
 - [ ] JSON/ID validation hoặc quarantine, schema bootstrap cho first run không event.
 - [ ] Audit table theo run và watermark.
-- [ ] Chốt brand conversion, cặp brand, semantics so sánh và benchmark grain.
+- [x] Chuẩn hóa co-reach, cặp brand, taxonomy comparison và một benchmark/laptop; các giới hạn được ghi trong metric contract.
 - [ ] Nếu cần, thiết kế publish/version cho tập Gold nhất quán.
 
 Chưa có nhu cầu đã triển khai cho CDC, streaming, SCD Type 2, manual price seeds hoặc thay BI tool. Các mục này giữ làm hướng nghiên cứu khi có câu hỏi/dữ liệu phù hợp.

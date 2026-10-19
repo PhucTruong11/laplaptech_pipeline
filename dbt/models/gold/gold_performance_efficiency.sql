@@ -1,5 +1,5 @@
 /*
-  Gold Model: mart_performance_efficiency
+  Gold Model: gold_performance_efficiency
   ========================================
   Mục đích:
     - Bảng tổng hợp Data Mart phục vụ phân tích hiệu suất phần cứng và tính hiệu quả (Efficiency Matrix).
@@ -12,6 +12,7 @@
 */
 
 SELECT
+    lm.laptop_model_id,
     lm.laptop_name,
     lm.brand_name,
     lm.laptop_weight_kg,
