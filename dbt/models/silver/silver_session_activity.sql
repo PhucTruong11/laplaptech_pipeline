@@ -2,7 +2,7 @@
 
 SELECT
     session_id,
-    MIN(server_timestamp)                       AS session_start,
+    (MIN(server_timestamp) AT TIME ZONE 'Asia/Ho_Chi_Minh')::date                       AS session_start,
     MAX(server_timestamp)                       AS session_end,
     COUNT(*)                                    AS event_count,
     COUNT(DISTINCT event_name)                  AS distinct_event_types,

@@ -77,6 +77,13 @@ models:
 
   - name: silver_user_event_tracking
     columns:
+      - name: id
+        tests:
+          - unique
+          - not_null
+      - name: server_timestamp
+        tests:
+          - not_null
       - name: session_id
         tests:
           - not_null

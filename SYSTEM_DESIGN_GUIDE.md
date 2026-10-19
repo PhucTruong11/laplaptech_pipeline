@@ -1,185 +1,167 @@
-# 🏗️ Hướng Dẫn Thiết Kế Hệ Thống Dữ Liệu (Data System Design Guide)
+# Hướng dẫn thiết kế hệ thống dữ liệu từ LaplapTech
 
-Tài liệu này tổng hợp quy trình step-by-step để thiết kế một nền tảng dữ liệu (Data Platform) từ quy mô nhỏ (như dự án LaplapTech hiện tại) cho đến quy mô Enterprise (tập đoàn lớn) xử lý hàng Terabyte/Petabyte dữ liệu.
+Cập nhật theo code ngày 19/10/2026. Project dùng để học và nghiên cứu. Các sơ đồ “hiện tại” chỉ mô tả thành phần đã có code; Airflow là hướng phát triển tiếp.
 
----
+Tài liệu triển khai chi tiết: [data flow](docs/architecture/data_flow.md). Danh sách công việc: [remaining work](docs/architecture/remaining_work.md).
 
-## 🧭 Mở đầu: Tư duy cốt lõi khi thiết kế Data System
+## 1. Bắt đầu từ yêu cầu
 
-Trước khi chọn bất kỳ công cụ (tech) nào, một Data/Analytics Engineer luôn phải trả lời 4 chữ V (Volume, Velocity, Variety, Veracity):
-1. **Volume:** Lượng dữ liệu lớn cỡ nào? (MBs, GBs hay TBs mỗi ngày?)
-2. **Velocity:** Tốc độ cần thiết là bao nhiêu? (Cần cập nhật mỗi ngày một lần - Batch, hay cập nhật tức thời theo thời gian thực - Streaming?)
-3. **Variety:** Dữ liệu có cấu trúc (bảng SQL), bán cấu trúc (JSON, XML), hay phi cấu trúc (Video, Hình ảnh)?
-4. **Veracity:** Dữ liệu có đáng tin cậy và sạch không?
+Trước khi chọn công cụ, xác định:
 
- Dựa vào 4 yếu tố này, chúng ta sẽ đi qua 5 bước thiết kế cốt lõi dưới đây.
+| Câu hỏi | Áp dụng cho project |
+|---|---|
+| Volume | Nguồn từng được ghi nhận khoảng 760k+ event; cần đo số mới theo run |
+| Velocity | Batch hai lần/ngày, không có yêu cầu realtime đã được triển khai |
+| Variety | Danh mục/benchmark dạng bảng và event chứa JSON |
+| Veracity | ID/version, dữ liệu NULL, JSON lỗi, event trễ và grain của metric |
+| Mục tiêu | Học pipeline end-to-end, thử tình huống lỗi và giải thích kết quả |
 
----
+Số công cụ không phải thước đo duy nhất của engineering. Thiết kế có ý nghĩa khi giải thích được invariant, failure path, replay và bằng chứng kiểm thử.
 
-## 🛠️ BƯỚC 1: Tầng Thu Thập Dữ Liệu (Data Ingestion / Extract)
-
-Đây là bước lấy dữ liệu từ các nguồn (App, Website, Database, API bên thứ 3) đem về nhà của mình.
-
-### Cách thức xử lý & Kỹ thuật cốt lõi:
-- **Batch Processing:** Gom dữ liệu chạy 1 lần/ngày hoặc 1 lần/giờ. Thích hợp cho báo cáo kinh doanh.
-- **Incremental & Watermark:** Chỉ lấy dữ liệu mới hơn mốc thời gian lớn nhất (`MAX(timestamp)`) đã nạp trong kho.
-- **Lookback Window (Bắt dữ liệu trễ - Late-Arriving Data):** Lùi mốc thời gian lọc lại một khoảng (VD: trừ 1 giờ) để không bị sót các bản ghi gửi trễ do lag mạng hay retry.
-- **Idempotency (Tính toàn vẹn khi chạy lại):** Chạy lại script nhiều lần không được làm nhân đôi dữ liệu hay phá vỡ hệ thống:
-  - *Kinh nghiệm từ dự án:* Đối với bảng dimension, dùng **`TRUNCATE TABLE raw.<table_name>` kết hợp `append`** thay vì `DROP TABLE ... CASCADE`. Lệnh `DROP` sẽ vô tình làm sập các `VIEW` ở tầng Bronze phụ thuộc phía sau trong PostgreSQL!
-- **Stream Processing (Real-time):** Dữ liệu sinh ra là bắt lấy ngay (dưới 1 giây). Thích hợp cho hệ thống gợi ý, chống gian lận.
-- **CDC (Change Data Capture):** Bắt các thay đổi (INSERT, UPDATE, DELETE) trực tiếp từ Write-Ahead Log (WAL) của DB nguồn.
-
-### Công nghệ (Tech Stack) & Lựa chọn thay thế:
-- **Tự code (Python/Bash):** Dành cho hệ thống nhỏ, tự chủ cao (như `clickhouse_to_postgres.py` dùng SQLAlchemy & Pandas).
-- **Công cụ kéo thả (SaaS ELT):** **Airbyte**, **Fivetran**, **Stitch** (có sẵn hàng trăm connector).
-- **Streaming & CDC:** **Apache Kafka**, **Debezium**, **AWS Kinesis**, **Google Pub/Sub**.
+## 2. Luồng đang triển khai
 
 ```mermaid
 flowchart LR
-    subgraph Data Sources
-        API[REST APIs]
-        APPDB[(MySQL / Mongo)]
-        CH[("ClickHouse<br>(Event Streams)")]
-    end
-
-    subgraph Ingestion Layer
-        direction TB
-        FIVETRAN["Fivetran / Airbyte<br>(Batch/CDC)"]
-        KAFKA["Apache Kafka<br>(Real-time Streaming)"]
-        PYTHON["Python Scripts<br>(TRUNCATE & Lookback Window)"]
-    end
-
-    API --> PYTHON
-    CH --> PYTHON
-    APPDB --> FIVETRAN
+    SOURCE["ClickHouse"] --> EXTRACT["Python trên runner hoặc local"]
+    EXTRACT --> RAW["Neon raw"]
+    RAW --> BRONZE["6 Bronze views"]
+    BRONZE --> SILVER["10 Silver views và 1 incremental event table"]
+    SILVER --> GOLD["12 Gold tables"]
+    GOLD --> APP["Streamlit query 8 mart trực tiếp"]
+    GH["GitHub Actions"] -.-> EXTRACT
+    GH -.-> DBT["dbt CLI: freshness -> build/tests"]
+    DBT -.-> BRONZE
+    DBT -.-> SILVER
+    DBT -.-> GOLD
 ```
 
----
+dbt CLI chạy trên runner; SQL được thực thi trong PostgreSQL Neon, gồm cả việc tạo Bronze. Streamlit được khởi chạy riêng; job sync không deploy app. Pipeline áp dụng ELT với phân lớp raw/Bronze/Silver/Gold.
 
-## 🗄️ BƯỚC 2: Tầng Lưu Trữ (Data Storage)
+## 3. Thiết kế ingestion
 
-Dữ liệu đem về phải có chỗ chứa. Chọn sai kiến trúc ở đây sẽ khiến chi phí Cloud tăng phi mã và truy vấn cực chậm.
+### Watermark và dữ liệu đến muộn
 
-### Các kiến trúc lưu trữ chính:
-1. **Data Warehouse (Kho dữ liệu):** Lưu dữ liệu CÓ cấu trúc (Tables), đã được làm sạch. Tối ưu cực tốt cho truy vấn phân tích (OLAP).
-2. **Data Lake (Hồ dữ liệu):** Lưu BẤT KỲ loại dữ liệu nào (File CSV, Parquet, JSON, Hình ảnh) với chi phí cực rẻ (như ổ cứng khổng lồ). Dữ liệu thường rất "đục" (chưa làm sạch).
-3. **Data Lakehouse:** Kết hợp chi phí rẻ của Data Lake và khả năng truy vấn nhanh của Data Warehouse (dùng định dạng mở như Iceberg, Delta Lake).
+Bảng event dùng server-received timestamp làm watermark, không dùng thời điểm client xảy ra event. Lượt thường lấy MAX raw trừ 2 giờ; Silver có watermark riêng và cửa sổ 2 giờ.
 
-### Cách phân chia Schema trong Data Warehouse (Medallion Layout):
-- `raw`: Chứa dữ liệu gốc vừa nạp từ Ingestion (chưa sửa đổi).
-- `public_bronze`: Lớp View trừu tượng hóa ánh xạ 1:1 từ `raw`.
-- `public_silver`: Lớp dữ liệu đã làm sạch, parse JSON, chuẩn hóa và nạp gia tăng.
-- `public_gold`: Lớp Data Marts tổng hợp nghiệp vụ, phục vụ trực tiếp BI.
+Event xảy ra từ lâu nhưng server vừa nhận có thể vẫn được lấy bình thường. Ngược lại, bản xuất hiện ở nguồn sau đó mà giữ timestamp quá cũ có thể nằm ngoài lookback. Vì vậy phải có backfill, không khẳng định lookback xử lý được mọi trường hợp.
 
-### Công nghệ (Tech Stack) & Lựa chọn thay thế:
-- **Quy mô nhỏ (GBs):** **PostgreSQL (Neon Tech)**, **MySQL** (Tuy là OLTP nhưng gánh tốt data nhỏ, Neon cung cấp Postgres serverless với tính năng Branching rất tiện lợi cho Data Platform mini).
-- **Data Warehouse (Đám mây - TBs):** **Google BigQuery**, **Snowflake**, **Amazon Redshift**.
-- **Data Lake (Chi phí rẻ):** **AWS S3**, **Google Cloud Storage (GCS)**, **Azure Data Lake Storage (ADLS)**.
-- **Lakehouse Formats:** **Apache Iceberg**, **Delta Lake**, **Apache Hudi**.
+CLI backfill đã có `--start` và `--end`, khoảng đầu bao gồm/cuối không bao gồm. Nó mới giới hạn extraction event; dimension vẫn là snapshot hiện tại.
 
----
-
-## 🔄 BƯỚC 3: Tầng Biến Đổi & Làm Sạch (Data Transformation)
-
-Dữ liệu nguyên thủy không bao giờ dùng được ngay. Ta phải làm sạch (Clean), gộp (Join), khử trùng (Deduplicate) và tổng hợp (Aggregate). Kiến trúc phổ biến nhất hiện nay là **Medallion Architecture**.
-
-### Xử lý ra sao (Medallion Architecture trong dbt):
-1. **Bronze (Raw Views):** Dữ liệu ánh xạ nguyên bản từ bảng Raw, đóng vai trò hợp đồng dữ liệu (Data Contract).
-2. **Silver (Cleaned & Incremental):**
-   - **Bóc tách JSON:** Dùng toán tử `->>` hoặc `#>>` để bóc các trường sâu trong JSON.
-   - **Deduplication:** Khử trùng lặp phát sinh từ Lookback window bằng `ROW_NUMBER() OVER (PARTITION BY id ORDER BY timestamp DESC)`.
-   - **Incremental Loading:** Với bảng sự kiện lớn (760k+ dòng), chuyển thành bảng **Incremental Table** với `unique_key` và bộ lọc `is_incremental()` để chỉ xử lý dữ liệu mới, giảm tải 95% thời gian chạy.
-   - **Macros:** Tạo hàm Jinja tái sử dụng (VD: `clean_string` dùng Regex chuẩn hóa khoảng trắng).
-3. **Gold (Business Level - Data Marts):**
-   - Join các bảng lại tạo ra 12 bảng Data Marts chuyên biệt (`mart_daily_site_kpis`, `mart_performance_efficiency`, `mart_brand_interest`...).
-   - Dùng macro `safe_divide` để bảo vệ các phép tính tỷ lệ chuyển đổi, hiệu năng pin không bị lỗi `Division by zero`.
-
-### Công nghệ (Tech Stack) & Lựa chọn thay thế:
-- **Nếu xử lý bằng SQL (ELT):** **dbt (Data Build Tool)** - Số 1 hiện nay. Các lựa chọn khác: **Google Dataform**.
-- **Nếu xử lý bằng Code cho Big Data (ETL):** **Apache Spark** (dùng PySpark/Scala), **Databricks**.
-- **Nếu xử lý Real-time:** **Apache Flink**, **Spark Streaming**.
+### Atomicity và idempotency
 
 ```mermaid
 flowchart TD
-    subgraph Transformation Engine [dbt Core / 29 Models]
-        direction LR
-        B[(Bronze<br>6 Views)] -->|Regex & Deduplicate<br>Incremental Table| S[(Silver<br>10 Views + 1 Table)]
-        S -->|Safe Divide Macro<br>Group By & KPI Marts| G[(Gold<br>12 Tables)]
-    end
+    FULL["Dimension DataFrame"] --> FTX["BEGIN -> lock -> schema check -> TRUNCATE -> insert -> COMMIT"]
+    EVENT["Event DataFrame"] --> DEDUP["Chọn version mới nhất theo ID"]
+    DEDUP --> ETX["BEGIN -> lock -> staging UUID -> version check -> DELETE/INSERT -> DROP staging -> COMMIT"]
+    FTX -->|\"Bất kỳ lỗi trong transaction\"| ROLLBACK["ROLLBACK transaction bảng đang nạp"]
+    ETX -->|\"Bất kỳ lỗi trong transaction\"| ROLLBACK
 ```
 
----
+- TRUNCATE giữ view, nhưng phải dùng cùng Connection/transaction với insert để rollback được dữ liệu.
+- Staging riêng ngăn job xóa bảng tạm của job khác. Transaction lock bảo vệ writer cùng quy tắc.
+- Replay event không tăng bản ghi theo ID trong trường hợp đã kiểm thử; bản cũ không thay bản mới.
+- Cùng ID/timestamp nhưng payload khác phải điều tra, vì timestamp không đủ phân xử version.
+- Chưa có transaction bao trùm toàn bộ 6 bảng và dbt; bảng đã commit trước lỗi vẫn giữ dữ liệu mới.
+- Raw lưu version được chọn, không phải immutable event history; xóa bản ghi ở nguồn chưa được đồng bộ bằng CDC.
 
-## 📊 BƯỚC 4: Tầng Phục Vụ & Phân Tích (Data Serving & Presentation)
+Extract toàn bộ kết quả vào RAM; chia chunk lúc insert chỉ giảm kích thước câu INSERT. Muốn học scale thêm, đo memory/thời gian rồi mới cân nhắc extraction theo trang/stream.
 
-Tầng này dành cho End-users (CEO, Manager, Data Analyst) tiêu thụ dữ liệu.
+## 4. Thiết kế warehouse và transformation
 
-### Cách thức xử lý:
-- **BI & Dashboards:** Trực quan hóa dữ liệu bằng biểu đồ phân tích.
-- **Tối ưu tốc độ:** Sử dụng Cache tầng ứng dụng (như `@st.cache_data` với TTL) để giảm thiểu số lượng truy vấn trực tiếp vào Database.
-- **Data Lineage:** Khai báo dbt `exposures` để nối dashboard vào đồ thị luồng dữ liệu của toàn bộ kho.
+Neon giữ database PostgreSQL; không dùng nó làm scheduler. Với profile `schema: public` và custom schema trong dbt, các tầng là:
 
-### Công nghệ (Tech Stack) & Lựa chọn thay thế:
-- **Data Apps (Code):** **Streamlit**, **Dash**, **Gradio** (Dự án này sử dụng hoàn toàn Streamlit với giao diện Glassmorphism CSS).
-- **BI Tools truyền thống:** **Metabase**, **Tableau**, **Power BI**, **Apache Superset**.
+| Schema | Materialization | Vai trò |
+|---|---|---|
+| `raw` | 6 tables do ingestion quản lý | Snapshot danh mục và event upsert |
+| `public_bronze` | 6 views | Ánh xạ nguồn 1:1; chưa enforce data contract |
+| `public_silver` | 10 views + 1 incremental table | Kiểu dữ liệu, JSON, catalog enrichment, session/event views |
+| `public_gold` | 12 tables | Aggregate và join phục vụ phân tích |
 
----
+Tầng Bronze không tự làm sạch và `SELECT *` không phải schema contract. Loader hiện chặn thêm/bớt tên cột ở bảng đã có; kiểm tra type/schema evolution đầy đủ vẫn là việc tiếp theo.
 
-## ⏱️ BƯỚC 5: Tầng Điều Phối & Giám Sát (Orchestration & DataOps)
+Gold hiện rebuild theo model, không phải incremental. DataFrame/SQL source không tự tạo unique index chỉ vì dbt có `unique_key`; data tests và constraint là hai lớp khác nhau.
 
-Khi có hàng chục bảng cần chạy mỗi ngày, phải có hệ thống điều phối tự động và cơ chế giám sát chất lượng dữ liệu.
+### Grain phải đi trước metric
 
-### Cách thức xử lý:
-- **DAG (Directed Acyclic Graph):** Quy định thứ tự chạy các job. Job Ingestion xong mới chạy dbt Bronze -> Silver -> Gold.
-- **Data Quality Tests:** Tự động kiểm tra tính toàn vẹn (26 tests `unique`, `not_null`, `accepted_values`, `relationships`).
-- **Source Freshness:** Bắn cảnh báo nếu dữ liệu nguồn không được cập nhật sau 24h hoặc 48h.
-- **Tài liệu hóa (Docs):** Sinh Lineage Graph và Catalog qua `dbt docs`.
+Daily KPI mới là một ngày server nhận event theo giờ Việt Nam. Session qua nửa đêm có thể tính ở hai ngày; SUM daily sessions là session-days.
 
-### Công nghệ (Tech Stack) & Lựa chọn thay thế:
-- **Orchestration:** 
-  - **GitHub Actions:** Rất tiện lợi cho dự án nhỏ/vừa, lên lịch tự động 2 lần/ngày (08:15 & 16:45 VN) kết hợp kích hoạt khi có commit mới.
-  - **Apache Airflow:** Chuẩn Enterprise cho pipeline phức tạp.
-  - **Prefect / Dagster:** Thế hệ mới với UI đẹp và quản lý Data Assets tốt hơn.
-- **Data Observability:** **Monte Carlo**, **Great Expectations**.
+Funnel session hiện là các bước đã từng xuất hiện và ngày bắt đầu session, không phải sequential conversion. CPU/GPU vẫn có timezone theo DB session và lọc nhóm >= 5 view. Không cộng/chia các aggregate khác grain để suy ra conversion mà chưa kiểm tra tập session.
+
+Join benchmark theo laptop ID cần xác định một hay nhiều benchmark/laptop để tránh fanout. Brand comparison cần quy định cặp có hướng hay không và thế nào là một lần so sánh.
+
+## 5. Orchestration và kiểm soát chất lượng
 
 ```mermaid
 sequenceDiagram
-    participant GH as GitHub Actions (08:15 & 16:45 VN)
-    participant Ingestion as Python Script
-    participant Warehouse as PostgreSQL (Neon)
-    participant Transform as dbt Core
-    participant App as Streamlit Dashboard
-
-    GH->>Ingestion: Kích hoạt Ingestion
-    Ingestion->>Warehouse: TRUNCATE dimension + Append Incremental
-    GH->>Transform: Kích hoạt dbt run
-    Transform->>Warehouse: Xử lý Bronze -> Silver -> Gold
-    GH->>Transform: Chạy dbt test (26 bài test) & Freshness
-    Transform-->>GH: Báo cáo kết quả kiểm thử (100% PASS)
-    Warehouse->>App: Dữ liệu sạch sẵn sàng hiển thị
+    participant GH as GitHub Actions
+    participant PY as Python ingestion
+    participant PG as Neon PostgreSQL
+    participant DBT as dbt CLI
+    GH->>PY: Trigger main/manual main hoặc lịch
+    PY->>PG: Commit từng bảng raw
+    alt Ingestion thành công
+        GH->>DBT: source freshness
+        DBT->>PG: Đọc MAX server timestamp
+        alt Không có freshness error
+            GH->>DBT: build models và data tests
+            DBT->>PG: SQL theo DAG
+            DBT-->>GH: Kết quả build/test, có thể thành công hoặc fail
+        else Freshness error
+            DBT-->>GH: Fail, không build
+        end
+    else Ingestion fail
+        PY-->>GH: Exit khác 0, bỏ qua freshness/build
+    end
+    GH->>GH: Lưu artifact dbt đã có bằng always
 ```
 
----
+Freshness warn 24 giờ/error 48 giờ được chạy riêng trước build. MAX timestamp mới không chứng minh mọi ID/version đã đầy đủ. Chưa có bảng audit phân biệt một run thành công không có traffic mới với job không chạy.
 
-## 🏗️ TỔNG HỢP 3 MẪU KIẾN TRÚC PHỔ BIẾN THEO QUY MÔ
+Có 34 data test đã parse (32 generic + 2 singular). Test nguồn/Silver ID và daily event count hỗ trợ invariant; chưa có đối soát đầy đủ raw-Silver version hay quarantine row lỗi. Exposure chỉ là metadata lineage.
 
-### 1. The Modern Data Stack (Phổ biến cho SME & Scale-ups)
-- **Nguồn -> Airbyte -> Google BigQuery -> dbt -> Metabase / Power BI.**
-- **Điều phối bằng:** Apache Airflow hoặc dbt Cloud.
+## 6. Tách kiểm chứng code khỏi dữ liệu thật
 
-### 2. Big Data & Lakehouse (Phổ biến cho Tập đoàn lớn / Fintech / E-commerce)
-- **Nguồn -> Kafka (Streaming) -> S3/GCS (Data Lake) -> Apache Spark (Transform) -> Delta Lake (Lakehouse) -> Tableau.**
-- **Điều phối bằng:** Databricks / Airflow.
+```mermaid
+flowchart LR
+    PR["PR / develop push"] --> COMPILE["Compile Python"]
+    COMPILE --> TEST["12 unit/config + 9 PostgreSQL integration tests"]
+    TEST --> PARSE["dbt parse: credential giả"]
+    PG["PostgreSQL 16 CI service"] --> TEST
+```
 
-### 3. Startup Zero-Budget / High-Efficiency (Kiến trúc chuẩn của LaplapTech Pipeline)
-Chi phí tối ưu, tự chủ hoàn toàn mã nguồn, hiệu năng cao và đáp ứng trọn vẹn quy trình Data Engineering chuyên nghiệp:
-- **Nguồn:** ClickHouse Server (760k+ dòng).
-- **Ingestion:** Python (Lookback window -1h, TRUNCATE & chunking bulk insert).
-- **Storage:** PostgreSQL (Supabase / Local) với kiến trúc Medallion (Raw, Bronze, Silver, Gold).
-- **Transformation:** dbt Core (29 models: 6 Bronze Views, 10 Silver Views, 1 Silver Incremental Table, 12 Gold Mart Tables; Macros `clean_string` & `safe_divide`).
-- **Data Quality:** 26 automated tests + 1 source freshness test + 1 exposure lineage.
-- **Serving:** Streamlit Web App (Plotly charts, Glassmorphism UI, cached queries).
-- **Điều phối:** GitHub Actions CI/CD (Cronjob 2 lần/ngày: 08:15 & 16:45 VN time).
+21 Python test đã pass local với PostgreSQL test riêng. Parse thành công cho 29 model và 34 data test; không đồng nghĩa SQL chạy hết hay data tests pass trên Neon.
 
----
-*Lưu ý: Thiết kế hệ thống không có "viên đạn bạc" (No Silver Bullet). Mọi quyết định chọn tool đều dựa vào: Ngân sách (Budget), Kỹ năng team (Team Skillset), và Nhu cầu thực tế của Business.*
+Môi trường CI không cần secrets dữ liệu thật. Dependencies chưa khóa nên còn cần lock/constraints phù hợp nền tảng và một lần cài sạch.
+
+## 7. Serving cũng cần kiểm tra tính đúng
+
+App đọc 8 Gold mart, cache 300 giây; exposure khai báo 12. Nếu build cập nhật được một số mart rồi fail, app vẫn có thể đọc các version khác nhau. Chưa có publish snapshot đồng loạt.
+
+Dashboard hiện còn các việc cần sửa: Today lấy ngày mới nhất của dataset, All-Time SUM session-days mang nhãn sessions, fallback pin 8.8 và search regex. Xem [backlog có tiêu chí nghiệm thu](docs/architecture/remaining_work.md).
+
+## 8. Airflow Docker cho giai đoạn học tiếp
+
+```mermaid
+flowchart LR
+    AF["Airflow Docker trên laptop: ingest -> freshness -> build"] --> NEON["Neon warehouse"]
+    AF -.-> META["Metadata PostgreSQL riêng trong Docker"]
+    GHA["GitHub Actions"] --> CI["CI/tests sau khi chuyển lịch"]
+```
+
+Đây là thiết kế dự kiến, chưa có DAG/runtime triển khai trong repo. Có thể giữ Neon khi chuyển nơi điều phối sang laptop. Chưa bắt buộc VPS nếu chấp nhận chỉ chạy khi máy/Docker bật.
+
+Bài học nên thực hành: retry không nhân dữ liệu, rerun dbt riêng, timeout, không chạy chồng, failed task và backfill theo data interval. Bounded ingestion đã có, nhưng Silver ngoài lookback và mapping interval trong DAG vẫn cần hoàn thiện.
+
+Chuyển lịch theo thứ tự dừng writer cũ rồi bật writer mới. Giữ GitHub Actions cho validation. Chưa có nhu cầu đã chứng minh để thêm Kafka/Spark/Kubernetes vào project này.
+
+## 9. Mở rộng khi đã có bằng chứng nhu cầu
+
+- Nhiều nguồn/dependency: thêm DAG/task boundaries và audit theo run.
+- Dataset vượt khả năng RAM: đo bottleneck, thử chunk extraction và checkpoint có kiểm thử.
+- Cần lịch sử thay đổi danh mục: thiết kế snapshot/SCD, không lấy snapshot hiện tại làm lịch sử.
+- Cần đồng bộ delete/update từ nguồn: chọn version/change signal phù hợp, thay vì chỉ tăng lookback.
+- Cần phục vụ báo cáo nhất quán theo run: thiết kế publish/version của tập mart.
+- Cần production liên tục: đánh giá hạ tầng thường trực, secret management và giám sát riêng.
+
+Các mục này là hướng thiết kế; không phải tính năng project đã hoàn thành.
