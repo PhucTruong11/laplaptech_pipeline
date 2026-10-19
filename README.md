@@ -1,5 +1,7 @@
 # LaplapTech Analytics Pipeline
 
+**Bản nâng cấp mới:** [Gold, metrics, dependency lock và dashboard](docs/guides/gold_upgrade.md). Đã kiểm chứng nguồn ClickHouse thật trên dev local, không ghi Neon.
+
 Project học và nghiên cứu Data Engineering: trích xuất ClickHouse, nạp PostgreSQL trên Neon, biến đổi bằng dbt và phục vụ phân tích qua Streamlit.
 
 ## 1. Trạng thái hiện tại
@@ -7,39 +9,20 @@ Project học và nghiên cứu Data Engineering: trích xuất ClickHouse, nạ
 | Phần | Trạng thái đối chiếu source ngày 19/10/2026 |
 |---|---|
 | Ingestion | Atomic theo từng bảng, dedup theo version, staging riêng, lookback 2 giờ và backfill CLI |
-| Transformation | 29 model: 6 Bronze views, 10 Silver views + 1 incremental table, 12 Gold tables |
-| Data quality | 34 dbt data test đã parse; source freshness là lệnh riêng |
-| Kiểm chứng | 21/21 Python test pass, gồm 9 PostgreSQL integration test local |
+| Transformation | 31 model: 6 Bronze views, 12 Silver views + 1 incremental table, 12 Gold tables |
+| Data quality | 47 dbt data test pass trên dev local; source freshness là lệnh riêng |
+| Kiểm chứng | 28/28 Python test pass, gồm 9 PostgreSQL integration và 2 Streamlit AppTest |
 | Điều phối hiện tại | GitHub Actions: main push, manual trên main, lịch 08:15 và 16:45 Việt Nam |
 | Airflow Docker | Hướng học tiếp; chưa triển khai |
-| End-to-end sau đợt sửa | Chưa chạy ingestion/dbt build trên Neon thật; chưa xác nhận 34 data test pass trên đó |
+| End-to-end sau đợt sửa | Đã chạy nguồn thật 784.455 event → PostgreSQL dev local → 31 model/47 tests; Neon chưa deploy |
 
-Kết quả test local không thay thế kiểm chứng dữ liệu thật. Dataset từng được mô tả ở mức 760k+ event; số dòng và thời gian chạy cần đo lại theo từng run.
+Nguồn thật có 784.455 event ở lần kiểm chứng 19/10/2026; raw, Bronze và Silver event khớp nhau, Gold totals đối soát pass và replay không đổi row counts. Đây là kết quả dev local, không phải deploy Neon.
 
 ## 2. Data flow
 
-```mermaid
-flowchart TD
-    CH["ClickHouse: 5 bảng danh mục/benchmark và 1 bảng event"]
-    GH["GitHub Actions runner"]
-    PY["Python: extract và load"]
-    DBT["dbt CLI: freshness rồi build và tests"]
+![Data flow: ClickHouse → ingestion → Neon raw/Bronze/Silver/Gold → Streamlit](assets/data-flow.svg)
 
-    subgraph NEON["PostgreSQL warehouse trên Neon"]
-        RAW["raw: full refresh và event upsert"]
-        B["public_bronze: 6 views"]
-        S["public_silver: 10 views và 1 incremental event table"]
-        G["public_gold: 12 mart tables"]
-        RAW --> B --> S --> G
-    end
-
-    CH --> PY
-    GH -.-> PY
-    GH -.-> DBT
-    PY -->|"Transaction theo bảng"| RAW
-    DBT -.->|"SQL thực thi trong PostgreSQL"| NEON
-    G -->|"8 mart được truy vấn trực tiếp"| APP["Streamlit: query cache 300 giây"]
-```
+Mũi tên liền biểu diễn dữ liệu/dependency; mũi tên đứt biểu diễn thứ tự chạy hoặc lệnh SQL. Sơ đồ dùng SVG tĩnh để chữ hiển thị đầy đủ trên GitHub; có thể mở ảnh để xem lớn.
 
 Neon lưu warehouse; runner thực thi Python và dbt CLI. Workflow không deploy Streamlit. Bronze/Silver/Gold là quan hệ trong PostgreSQL, không phải ba máy chủ riêng.
 
@@ -69,20 +52,20 @@ Ingestion/freshness lỗi thì không chạy bước xử lý phía sau. Khi bui
 
 | Nhóm | Mart |
 |---|---|
-| KPI và hành vi | `mart_daily_site_kpis`, `mart_behavior_funnel_daily`, `mart_user_os`, `mart_search_analytics` |
-| Quan tâm thương hiệu | `mart_brand_interest`, `mart_brand_comparison` |
-| Cấu hình và xu hướng | `mart_cpu_trend`, `mart_gpu_trend`, `mart_spec_popularity` |
-| Benchmark và pin | `mart_performance_ranking`, `mart_performance_efficiency`, `mart_battery_vs_interest` |
+| KPI và hành vi | `gold_daily_site_kpis`, `gold_behavior_funnel_daily`, `gold_user_os`, `gold_search_analytics` |
+| Quan tâm thương hiệu | `gold_brand_interest`, `gold_brand_comparison` |
+| Cấu hình và xu hướng | `gold_cpu_trend`, `gold_gpu_trend`, `gold_spec_popularity` |
+| Benchmark và pin | `gold_performance_ranking`, `gold_performance_efficiency`, `gold_battery_vs_interest` |
 
-Daily KPI đếm event thực tế theo ngày server nhận ở giờ Việt Nam. `total_sessions` là session hoạt động trong ngày; cộng nhiều ngày thành **session-days**. Funnel hiện đo các bước từng xuất hiện trong session, chưa đo trình tự chuyển đổi.
+Daily KPI đếm event thực tế theo ngày server nhận ở giờ Việt Nam. `total_sessions` là session hoạt động trong ngày; cộng nhiều ngày thành **session-days**. Funnel dùng cùng session-day với KPI; các bước đo reach độc lập, chưa đo trình tự chuyển đổi.
 
-Search volume phản ánh từ khóa được tìm; chưa đủ chứng minh zero-result/product gap. Model comparison suy từ thiết bị cùng xuất hiện trong session. Cần chốt thêm các định nghĩa trước khi rút kết luận nghiệp vụ.
+Search volume phản ánh từ khóa được tìm; chưa đủ chứng minh zero-result/product gap. Comparison bridge chuẩn hóa tên trang/event nguồn và mở rộng device_ids; cặp brand đo co-occurrence trong session-day, không khẳng định một comparison action đồng thời.
 
-Exposure khai báo 12 mart; UI hiện truy vấn trực tiếp 8. Xem [grain từng model và các giới hạn](docs/architecture/data_flow.md).
+Exposure và UI hiện đều dùng đủ 12 Gold model. Xem [grain từng model và các giới hạn](docs/architecture/data_flow.md).
 
 ## 4. Cài đặt và chạy
 
-Ví dụ PowerShell từ root repository. CI hiện dùng Python 3.13; dependencies chưa khóa version.
+Ví dụ PowerShell từ root repository. CI hiện dùng Python 3.13; dependencies runtime đã khóa trong requirements.lock.txt (85 package).
 
 ```powershell
 python -m venv venv
@@ -121,11 +104,11 @@ python -m unittest discover -s tests -v
 python -m dotenv -f .env run -- dbt parse --project-dir dbt --profiles-dir dbt
 ```
 
-Không set `TEST_DATABASE_URL` thì integration tests skip. Hướng dẫn tạo PostgreSQL test và chạy đủ 21 test nằm trong tài liệu vận hành. `dbt parse` không chạy SQL/data tests lên warehouse.
+Không set `TEST_DATABASE_URL` thì integration tests skip. Hướng dẫn tạo PostgreSQL test và chạy đủ ingestion tests; AppTest cần Gold fixture đã build nằm trong tài liệu vận hành. `dbt parse` không chạy SQL/data tests lên warehouse. Để tái lập build/replay và đối soát: `python -m scripts.run_dev_pipeline --source fixture` với DEV_DATABASE_URL local.
 
 ### CI và lịch cập nhật
 
-- [validate.yml](.github/workflows/validate.yml): PR hoặc push develop, compile Python, test bằng PostgreSQL service riêng, rồi dbt parse với cấu hình giả; không cần Neon secrets.
+- [validate.yml](.github/workflows/validate.yml): PR hoặc push develop, compile Python, PostgreSQL tests, fixture end-to-end build/replay và AppTest; không cần Neon secrets.
 - [sync-pipeline.yml](.github/workflows/sync-pipeline.yml): chỉ main được ghi warehouse chính; giữ lịch hai lần/ngày và concurrency group cố định.
 - Lịch là cấu hình dự kiến, không bảo đảm job bắt đầu đúng phút. Không chạy laptop/Airflow cùng lúc với sync trên cùng warehouse.
 - Artifact hiện lưu manifest, run results và source freshness nếu có; chưa có audit table hoặc webhook thông báo riêng.
@@ -138,10 +121,12 @@ Không set `TEST_DATABASE_URL` thì integration tests skip. Hướng dẫn tạo
 | [Việc còn lại](docs/architecture/remaining_work.md) | Backlog có ưu tiên và tiêu chí nghiệm thu |
 | [Upgrade plan](docs/architecture/upgrade_plan.md) | Quyết định kiến trúc, lịch sử thay đổi và hướng Airflow |
 | [Ingestion operations](docs/guides/ingestion_operations.md) | Cấu hình Neon, lệnh chạy, backfill và tests |
-| [Pipeline fix guide](docs/guides/pipeline_fix_guide.md) | Code mẫu và giải thích các bước sửa; một phần đã triển khai |
+| [Gold upgrade](docs/guides/gold_upgrade.md) | Metric contract, migration Gold, dependency lock và dev E2E |
 | [System design guide](SYSTEM_DESIGN_GUIDE.md) | Các quyết định thiết kế và bài học từ project |
 
-Ưu tiên tiếp theo là dashboard/metric, timezone, khóa dependency và một lượt end-to-end dev có bằng chứng. Với mục tiêu học, Airflow Docker local là bước sau phù hợp; có thể giữ Neon, chưa bắt buộc thuê VPS.
+Dashboard, timezone/metric, lock và end-to-end dev đã hoàn thành; xem báo cáo và hướng dẫn migration trong tài liệu Gold upgrade. Các việc tiếp theo gồm audit/quarantine, constraint/index và Airflow lab. Với mục tiêu học, Airflow Docker local là bước sau phù hợp; có thể giữ Neon, chưa bắt buộc thuê VPS.
+
+![Dashboard dev trên dữ liệu ClickHouse thật](assets/dashboard_preview.png)
 
 ## 6. Cấu trúc repository
 
@@ -149,15 +134,17 @@ Không set `TEST_DATABASE_URL` thì integration tests skip. Hướng dẫn tạo
 .github/workflows/         # validate CI và sync warehouse
 ingestion/                 # extraction, full refresh, event upsert, CLI backfill
 dbt/models/bronze/         # 6 pass-through views
-dbt/models/silver/         # 10 views + incremental event table
+dbt/models/silver/         # 12 views + incremental event table
 dbt/models/gold/           # 12 mart tables
 dbt/models/model_tests.yml # generic model tests
 dbt/models/sources.yml     # source tests và freshness
-dbt/tests/                 # 2 singular tests
-tests/test_ingestion.py    # unit/config và PostgreSQL integration tests
+dbt/tests/                 # 6 singular tests
+tests/                    # ingestion, PostgreSQL integration và dashboard AppTest
+scripts/                  # lock generator, fixture và dev E2E runner
 streamlit_app/app.py       # giao diện phân tích
 docs/architecture/         # data flow, backlog và quyết định kiến trúc
-docs/guides/               # hướng dẫn sửa/vận hành
+docs/guides/               # vận hành ingestion và migration Gold
+assets/                    # SVG data flow và screenshot dashboard
 ```
 
 ## Dataset attribution

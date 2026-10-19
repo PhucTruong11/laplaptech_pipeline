@@ -2,6 +2,8 @@
 
 Cập nhật theo code ngày 19/10/2026. Project dùng để học và nghiên cứu. Các sơ đồ “hiện tại” chỉ mô tả thành phần đã có code; Airflow là hướng phát triển tiếp.
 
+Bản nâng cấp đã kiểm chứng: [Gold upgrade](docs/guides/gold_upgrade.md).
+
 Tài liệu triển khai chi tiết: [data flow](docs/architecture/data_flow.md). Danh sách công việc: [remaining work](docs/architecture/remaining_work.md).
 
 ## 1. Bắt đầu từ yêu cầu
@@ -20,20 +22,7 @@ Số công cụ không phải thước đo duy nhất của engineering. Thiết
 
 ## 2. Luồng đang triển khai
 
-```mermaid
-flowchart LR
-    SOURCE["ClickHouse"] --> EXTRACT["Python trên runner hoặc local"]
-    EXTRACT --> RAW["Neon raw"]
-    RAW --> BRONZE["6 Bronze views"]
-    BRONZE --> SILVER["10 Silver views và 1 incremental event table"]
-    SILVER --> GOLD["12 Gold tables"]
-    GOLD --> APP["Streamlit query 8 mart trực tiếp"]
-    GH["GitHub Actions"] -.-> EXTRACT
-    GH -.-> DBT["dbt CLI: freshness -> build/tests"]
-    DBT -.-> BRONZE
-    DBT -.-> SILVER
-    DBT -.-> GOLD
-```
+![Data flow: ClickHouse → ingestion → Neon raw/Bronze/Silver/Gold → Streamlit](assets/data-flow.svg)
 
 dbt CLI chạy trên runner; SQL được thực thi trong PostgreSQL Neon, gồm cả việc tạo Bronze. Streamlit được khởi chạy riêng; job sync không deploy app. Pipeline áp dụng ELT với phân lớp raw/Bronze/Silver/Gold.
 
@@ -50,12 +39,13 @@ CLI backfill đã có `--start` và `--end`, khoảng đầu bao gồm/cuối kh
 ### Atomicity và idempotency
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    FULL["Dimension DataFrame"] --> FTX["BEGIN -> lock -> schema check -> TRUNCATE -> insert -> COMMIT"]
+    FULL["Dimension DataFrame"] --> FTX["BEGIN -> lock -> schema check -><br/>TRUNCATE -> insert -> COMMIT"]
     EVENT["Event DataFrame"] --> DEDUP["Chọn version mới nhất theo ID"]
-    DEDUP --> ETX["BEGIN -> lock -> staging UUID -> version check -> DELETE/INSERT -> DROP staging -> COMMIT"]
-    FTX -->|\"Bất kỳ lỗi trong transaction\"| ROLLBACK["ROLLBACK transaction bảng đang nạp"]
-    ETX -->|\"Bất kỳ lỗi trong transaction\"| ROLLBACK
+    DEDUP --> ETX["BEGIN -> lock -> staging UUID -><br/>version check -> DELETE/INSERT -><br/>DROP staging -> COMMIT"]
+    FTX -->|"Bất kỳ lỗi trong transaction"| ROLLBACK["ROLLBACK transaction bảng đang nạp"]
+    ETX -->|"Bất kỳ lỗi trong transaction"| ROLLBACK
 ```
 
 - TRUNCATE giữ view, nhưng phải dùng cùng Connection/transaction với insert để rollback được dữ liệu.
@@ -75,7 +65,7 @@ Neon giữ database PostgreSQL; không dùng nó làm scheduler. Với profile `
 |---|---|---|
 | `raw` | 6 tables do ingestion quản lý | Snapshot danh mục và event upsert |
 | `public_bronze` | 6 views | Ánh xạ nguồn 1:1; chưa enforce data contract |
-| `public_silver` | 10 views + 1 incremental table | Kiểu dữ liệu, JSON, catalog enrichment, session/event views |
+| `public_silver` | 12 views + 1 incremental table | Kiểu dữ liệu, JSON, catalog enrichment, session/event views |
 | `public_gold` | 12 tables | Aggregate và join phục vụ phân tích |
 
 Tầng Bronze không tự làm sạch và `SELECT *` không phải schema contract. Loader hiện chặn thêm/bớt tên cột ở bảng đã có; kiểm tra type/schema evolution đầy đủ vẫn là việc tiếp theo.
@@ -86,9 +76,9 @@ Gold hiện rebuild theo model, không phải incremental. DataFrame/SQL source 
 
 Daily KPI mới là một ngày server nhận event theo giờ Việt Nam. Session qua nửa đêm có thể tính ở hai ngày; SUM daily sessions là session-days.
 
-Funnel session hiện là các bước đã từng xuất hiện và ngày bắt đầu session, không phải sequential conversion. CPU/GPU vẫn có timezone theo DB session và lọc nhóm >= 5 view. Không cộng/chia các aggregate khác grain để suy ra conversion mà chưa kiểm tra tập session.
+Funnel và daily KPI cùng dùng session-day, đo reach độc lập thay vì sequential conversion. CPU/GPU dùng business_month theo giờ Việt Nam và giữ cả nhóm ít view. Không cộng/chia các aggregate khác grain để suy ra conversion mà chưa kiểm tra tập session.
 
-Join benchmark theo laptop ID cần xác định một hay nhiều benchmark/laptop để tránh fanout. Brand comparison cần quy định cặp có hướng hay không và thế nào là một lần so sánh.
+Silver chọn benchmark ID lớn nhất mỗi laptop để tránh fanout; đây là quy tắc đại diện, không suy ra thời gian. Brand pair được canonicalize và đo co-occurrence của comparison interactions trong session-day.
 
 ## 5. Orchestration và kiểm soát chất lượng
 
@@ -118,34 +108,36 @@ sequenceDiagram
 
 Freshness warn 24 giờ/error 48 giờ được chạy riêng trước build. MAX timestamp mới không chứng minh mọi ID/version đã đầy đủ. Chưa có bảng audit phân biệt một run thành công không có traffic mới với job không chạy.
 
-Có 34 data test đã parse (32 generic + 2 singular). Test nguồn/Silver ID và daily event count hỗ trợ invariant; chưa có đối soát đầy đủ raw-Silver version hay quarantine row lỗi. Exposure chỉ là metadata lineage.
+Có 47 data test (41 generic + 6 singular) đã pass trên PostgreSQL dev local với fixture và nguồn ClickHouse thật. Test nguồn/Silver ID và daily event count hỗ trợ invariant; đã đối soát raw-Silver ID/version và aggregate totals; quarantine row lỗi còn là việc tiếp theo. Exposure chỉ là metadata lineage.
 
 ## 6. Tách kiểm chứng code khỏi dữ liệu thật
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
     PR["PR / develop push"] --> COMPILE["Compile Python"]
-    COMPILE --> TEST["12 unit/config + 9 PostgreSQL integration tests"]
+    COMPILE --> TEST["17 unit/helper + 9 PostgreSQL<br/>integration tests"]
     TEST --> PARSE["dbt parse: credential giả"]
     PG["PostgreSQL 16 CI service"] --> TEST
 ```
 
-21 Python test đã pass local với PostgreSQL test riêng. Parse thành công cho 29 model và 34 data test; không đồng nghĩa SQL chạy hết hay data tests pass trên Neon.
+28 Python test pass, gồm 9 ingestion integration và 2 AppTest. 31 model build và 47 data test pass trên dev với 784.455 raw event; replay giữ nguyên row counts. Chưa deploy Neon.
 
-Môi trường CI không cần secrets dữ liệu thật. Dependencies chưa khóa nên còn cần lock/constraints phù hợp nền tảng và một lần cài sạch.
+Môi trường CI không cần secrets dữ liệu thật. 85 runtime dependency đã pin trong lock, cài sạch và pip check pass trên Windows/Linux Python 3.13.
 
 ## 7. Serving cũng cần kiểm tra tính đúng
 
-App đọc 8 Gold mart, cache 300 giây; exposure khai báo 12. Nếu build cập nhật được một số mart rồi fail, app vẫn có thể đọc các version khác nhau. Chưa có publish snapshot đồng loạt.
+App đọc đủ 12 Gold model, cache 300 giây; exposure khớp 12 dependency. Nếu build cập nhật được một số mart rồi fail, app vẫn có thể đọc các version khác nhau. Chưa có publish snapshot đồng loạt.
 
-Dashboard hiện còn các việc cần sửa: Today lấy ngày mới nhất của dataset, All-Time SUM session-days mang nhãn sessions, fallback pin 8.8 và search regex. Xem [backlog có tiêu chí nghiệm thu](docs/architecture/remaining_work.md).
+Dashboard mới dùng Today thật, nhãn session-days, benchmark N/A và literal search; có bộ lọc ngày và latest received event. Xem [backlog có tiêu chí nghiệm thu](docs/architecture/remaining_work.md).
 
 ## 8. Airflow Docker cho giai đoạn học tiếp
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
-    AF["Airflow Docker trên laptop: ingest -> freshness -> build"] --> NEON["Neon warehouse"]
-    AF -.-> META["Metadata PostgreSQL riêng trong Docker"]
+    AF["Airflow Docker trên laptop: ingest<br/>-> freshness -> build"] --> NEON["Neon warehouse"]
+    AF -.-> META["Metadata PostgreSQL riêng trong<br/>Docker"]
     GHA["GitHub Actions"] --> CI["CI/tests sau khi chuyển lịch"]
 ```
 

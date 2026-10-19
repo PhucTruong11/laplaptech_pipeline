@@ -1,5 +1,5 @@
 SELECT *
-FROM {{ ref('mart_daily_site_kpis') }}
+FROM {{ ref('gold_daily_site_kpis') }}
 WHERE total_events < total_sessions
    OR detail_rate_pct NOT BETWEEN 0 AND 100
    OR comparison_rate_pct NOT BETWEEN 0 AND 100

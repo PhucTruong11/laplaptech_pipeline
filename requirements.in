@@ -1,0 +1,11 @@
+# Direct runtime dependencies. Update in a resolved, tested Python 3.13 environment.
+clickhouse-connect
+pandas
+pyarrow
+psycopg2-binary
+python-dotenv[cli]
+sqlalchemy
+dbt-postgres
+streamlit
+plotly
+tzdata

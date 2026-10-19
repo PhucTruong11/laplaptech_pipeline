@@ -34,18 +34,22 @@ WITH parsed AS (
         -- Dùng toán tử ->> để lấy giá trị dạng chuỗi (text)
         -- Kiểm tra Regex '^[0-9]+$' để lọc ra chỉ những device_id hợp lệ là số nguyên
         CASE 
-            WHEN (event_data::json ->> 'device_id') ~ '^[0-9]+$' 
-            THEN event_data::json ->> 'device_id'
+            WHEN (event_data::json ->> 'device_id') ~ '^[0-9]{1,10}$'
+            THEN CASE WHEN (event_data::json ->> 'device_id')::numeric BETWEEN 1 AND 2147483647
+                THEN event_data::json ->> 'device_id' ELSE NULL END
             ELSE NULL 
         END                                                 AS device_id,
-        event_data::json ->> 'page_name'                     AS page_name,
+        event_data::json ->> 'page_name' AS source_page_name,
+        CASE WHEN event_name IN ('comparison_chart_sort_selection', 'comparison_chart_geekbench_version_selection')
+               OR event_data::json ->> 'page_name' IN ('DeviceComparisonHome', 'DeviceComparison', 'CompareDevice')
+             THEN 'CompareDevice' ELSE event_data::json ->> 'page_name' END AS page_name,
         event_data::json ->> 'keyword'                       AS search_keyword,
         event_data::json ->> 'sort_by'                       AS sort_by,
         event_data::json ->> 'sort_direction'                AS sort_direction,
         event_data::json ->> 'device_ids'                    AS device_ids_raw,
 
         -- Bóc tách dữ liệu thiết bị người dùng từ JSON device (User Agent metadata)
-        device::json ->> 'os'                                AS user_os,
+        COALESCE(device::json ->> 'os', device::json ->> 'os_name') AS user_os,
         device::json ->> 'os_version'                        AS user_os_version,
         device::json ->> 'browser'                           AS user_browser,
         device::json ->> 'device_type'                       AS user_device_type,
@@ -55,7 +59,7 @@ WITH parsed AS (
         device,
 
         -- Cơ chế Deduplication (Khử trùng lặp):
-        -- Do ingestion script dùng Lookback Window (-1h) để chống sót dữ liệu trễ,
+        -- Ingestion mặc định lookback 2 giờ; Silver vẫn tự bảo vệ theo ID.
         -- có thể có bản ghi trùng lặp id được kéo lại. Ta dùng hàm ROW_NUMBER()
         -- đánh số theo thời gian server nhận mới nhất để chỉ lấy duy nhất 1 bản ghi chuẩn.
         ROW_NUMBER() OVER (
@@ -86,6 +90,7 @@ SELECT
     server_timestamp,
     device_id,
     page_name,
+    source_page_name,
     search_keyword,
     sort_by,
     sort_direction,

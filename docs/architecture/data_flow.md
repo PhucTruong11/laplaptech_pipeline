@@ -1,6 +1,6 @@
 # Data flow hiện tại của LaplapTech
 
-Cập nhật ngày 19/10/2026, đối chiếu source trong repository. Đây là kiến trúc đã có code; chưa xác nhận các thay đổi mới đã chạy end-to-end trên Neon. Airflow nằm ở phần kế hoạch, chưa thay GitHub Actions.
+Cập nhật ngày 19/10/2026, đối chiếu source trong repository. Đã kiểm chứng end-to-end bằng nguồn ClickHouse thật trên PostgreSQL dev local; chưa deploy các thay đổi lên Neon. Xem [Gold upgrade](../guides/gold_upgrade.md) và [report](../validation/dev_run_2026-10-19.json). Airflow nằm ở phần kế hoạch, chưa thay GitHub Actions.
 
 ## 1. Các thành phần chạy ở đâu?
 
@@ -20,45 +20,24 @@ Workflow hiện tại không deploy hoặc restart Streamlit. Neon lưu dữ li�
 
 Mũi tên liền là dữ liệu/quan hệ phụ thuộc; mũi tên đứt là điều khiển hoặc metadata.
 
-```mermaid
-flowchart TD
-    CH["ClickHouse: 6 bảng nguồn"]
-    GH["GitHub Actions: main, manual trên main, lịch 2 lần/ngày"]
-    PY["Python ingestion trên runner"]
-    CLI["dbt CLI trên runner"]
+![Data flow: ClickHouse → ingestion → Neon raw/Bronze/Silver/Gold → Streamlit](../../assets/data-flow.svg)
 
-    subgraph NEON["PostgreSQL warehouse trên Neon"]
-        RAW["raw: 5 full-refresh tables và 1 event table"]
-        B["public_bronze: 6 views ánh xạ raw"]
-        S["public_silver: 10 views và 1 incremental event table"]
-        G["public_gold: 12 mart tables"]
-        RAW --> B
-        B --> S
-        S --> G
-    end
-
-    CH -->|"Extract full hoặc watermark/backfill"| PY
-    PY -->|"Transaction theo từng bảng"| RAW
-    GH -.-> PY
-    GH -.-> CLI
-    CLI -.->|"Freshness, build và data tests"| NEON
-    G -->|"8 mart được app truy vấn trực tiếp"| APP["Streamlit và cache 300 giây"]
-    EXP["dbt exposure: khai báo dependency vào 12 mart"] -.-> APP
-```
+`dbt exposure` khai báo dependency vào cả 12 Gold model cho app; đây là metadata, không di chuyển dữ liệu. Sơ đồ tổng quan dùng chung [SVG](../../assets/data-flow.svg) với README.
 
 Bronze là pass-through view, chưa phải data contract được enforce. Raw giữ snapshot danh mục và phiên bản event được chọn theo ID; raw không lưu bất biến mọi phiên bản nguồn.
 
 ## 3. Control flow của job cập nhật
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
-    T["main push / manual main / 08:15 và 16:45 VN"] --> Q["Concurrency group theo warehouse"]
+    T["main push / manual main / 08:15 và<br/>16:45 VN"] --> Q["Concurrency group theo warehouse"]
     Q --> I["Ingestion"]
     I -->|"Thành công"| F["dbt source freshness"]
-    F -->|"Không có freshness error"| D["dbt build: models và tests theo DAG"]
+    F -->|"Không có freshness error"| D["dbt build: models và tests theo<br/>DAG"]
     I -->|"Thất bại"| STOP["Không chạy các bước xử lý phía sau"]
     F -->|"Trễ quá 48 giờ"| STOP
-    D -->|"Model/test lỗi"| FAIL["Job fail; downstream có thể bị skip"]
+    D -->|"Model/test lỗi"| FAIL["Job fail; downstream có thể bị<br/>skip"]
     I -.-> A["Upload artifact: always"]
     F -.-> A
     D -.-> A
@@ -78,11 +57,12 @@ flowchart LR
 Áp dụng cho `brand`, `cpu_model`, `gpu_model`, `laptop_model`, `laptop_benchmark_result`.
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart TD
     E["SELECT toàn bảng từ ClickHouse"] --> V{"DataFrame có dữ liệu?"}
     V -->|"Không"| REJECT["Fail và giữ bảng cũ"]
-    V -->|"Có"| TX["BEGIN và transaction advisory lock theo bảng"]
-    TX --> CHECK["Kiểm tra bảng tồn tại và tập tên cột"]
+    V -->|"Có"| TX["BEGIN và transaction advisory lock<br/>theo bảng"]
+    TX --> CHECK["Kiểm tra bảng tồn tại và tập tên<br/>cột"]
     CHECK --> TR["TRUNCATE nếu đã có bảng"]
     TR --> W["to_sql append bằng cùng Connection"]
     W --> C["COMMIT"]
@@ -99,20 +79,21 @@ TRUNCATE giữ định nghĩa view. Atomicity đến từ việc TRUNCATE và in
 Watermark: `event_received_on_server_timestamp`, dạng epoch giây. Lượt thông thường lấy `timestamp >= MAX(raw timestamp) - INGESTION_LOOKBACK_SECONDS`, mặc định 7.200 giây. Chưa có bảng hoặc chưa có watermark thì extract toàn bảng. Lỗi đọc watermark phải fail, không biến thành full extraction.
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart TD
-    E["Extract event theo watermark hoặc khoảng backfill"] --> P["Kiểm tra ID, epoch và chuẩn hóa JSON object"]
+    E["Extract event theo watermark hoặc<br/>khoảng backfill"] --> P["Kiểm tra ID, epoch và chuẩn hóa<br/>JSON object"]
     P --> D["Chọn timestamp lớn nhất cho mỗi ID"]
-    D --> X{"Cùng ID và timestamp mới nhất nhưng payload khác?"}
+    D --> X{"Cùng ID và timestamp mới nhất<br/>nhưng payload khác?"}
     X -->|"Có"| BAD["Fail để điều tra version nguồn"]
     X -->|"Không"| TX["BEGIN và transaction advisory lock"]
     TX --> EXISTS{"Đã có bảng raw?"}
     EXISTS -->|"Chưa"| FIRST["Tạo và nạp batch đầu"]
-    EXISTS -->|"Có"| STG["Tạo staging có hậu tố UUID và nạp batch"]
-    STG --> OLD["Bỏ dòng staging cũ hơn bản đã có trong raw"]
-    OLD --> CONFLICT["Kiểm tra payload xung đột cùng ID và timestamp với raw"]
+    EXISTS -->|"Có"| STG["Tạo staging có hậu tố UUID và nạp<br/>batch"]
+    STG --> OLD["Bỏ dòng staging cũ hơn bản đã có<br/>trong raw"]
+    OLD --> CONFLICT["Kiểm tra payload xung đột cùng ID<br/>và timestamp với raw"]
     CONFLICT --> DEL["DELETE các ID được thay thế"]
-    DEL --> INS["INSERT theo danh sách cột tường minh"]
-    INS --> DROP["DROP staging trong cùng transaction"]
+    DEL --> INS["INSERT theo danh sách cột tường<br/>minh"]
+    INS --> DROP["DROP staging trong cùng<br/>transaction"]
     FIRST --> COMMIT["COMMIT"]
     DROP --> COMMIT
     CONFLICT -->|"Xung đột"| RB["ROLLBACK cả raw và staging"]
@@ -128,17 +109,18 @@ Transaction lock bảo vệ các writer sử dụng cùng khóa trong code. Chư
 ### 5.1 Các nhánh Silver
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
     BD["Bronze brand, CPU, GPU"] --> SD["Silver brand, CPU, GPU"]
     BL["bronze_laptop_model"] --> LAP["silver_laptop_model"]
     SD --> LAP
     BB["bronze_laptop_benchmark_result"] --> BEN["silver_laptop_benchmark_result"]
-    BE["bronze_user_event_tracking"] --> EVT["silver_user_event_tracking: incremental theo ID"]
-    EVT --> SF["Session activity và session funnel"]
-    EVT --> CE["Comparison session-device"]
-    EVT --> SORT["Comparison sort event: chưa có Gold downstream"]
+    BE["bronze_user_event_tracking"] --> EVT["silver_user_event_tracking:<br/>incremental theo ID"]
+    EVT --> SF["Session activity và<br/>session-day/funnel"]
+    EVT --> CE["Comparison event-device bridge và<br/>session-device"]
+    EVT --> SORT["Comparison sort event: chưa có<br/>Gold downstream"]
     EVT --> DT["Device traffic event"]
-    LAP --> MART["Các Gold mart join catalog/event/benchmark"]
+    LAP --> MART["Các Gold mart join<br/>catalog/event/benchmark"]
     BEN --> MART
     EVT --> MART
     SF --> MART
@@ -147,26 +129,26 @@ flowchart LR
 
 Silver event parse JSON, đổi epoch sang timestamp có timezone, lọc event_name/session_id NULL và dedup theo ID. Incremental đọc lại cửa sổ 2 giờ từ MAX timestamp của **Silver**. Đây là watermark riêng, không phải MAX raw. `unique_key='id'` của dbt không tự tạo unique constraint.
 
-`silver_comparison_sort_event` và `silver_device_traffic_event` hiện không có Gold model downstream; chúng vẫn là view chuẩn bị cho phân tích mở rộng. `mart_daily_site_kpis` đọc trực tiếp Silver event, không còn lấy COUNT từ `silver_session_funnel`.
+`silver_comparison_sort_event` và `silver_device_traffic_event` hiện không có Gold downstream. `gold_daily_site_kpis` và funnel cùng lấy từ `silver_session_day`. Bridge `silver_comparison_event_device` mở rộng device_ids và chuẩn hóa attribution cho brand/product.
 
 ### 5.2 12 Gold mart
 
 | Model | Upstream Silver | Grain và ý nghĩa hiện tại |
 |---|---|---|
-| `mart_daily_site_kpis` | user_event_tracking | Một ngày Việt Nam, đo active session-days và event thực tế |
-| `mart_behavior_funnel_daily` | session_funnel | Ngày bắt đầu session; đếm các bước đã xuất hiện, không yêu cầu thứ tự |
-| `mart_brand_interest` | user_event_tracking, laptop_model, comparison_session_device | Một brand có detail view; số view và session quan tâm |
-| `mart_brand_comparison` | comparison_session_device, laptop_model | Cặp brand theo hướng laptop_a/laptop_b; suy từ đồng xuất hiện trong session |
-| `mart_cpu_trend` | user_event_tracking, laptop_model | Tháng, CPU, brand; chỉ detail pageview, nhóm ít nhất 5 view |
-| `mart_gpu_trend` | user_event_tracking, laptop_model | Tháng, GPU, brand; chỉ detail pageview, nhóm ít nhất 5 view |
-| `mart_search_analytics` | user_event_tracking | Keyword đã lower/trim, tổng search và distinct sessions |
-| `mart_spec_popularity` | user_event_tracking, laptop_model | CPU, GPU, kích thước màn hình, dung lượng pin; chưa có RAM/storage |
-| `mart_performance_ranking` | laptop_model, laptop_benchmark_result | Laptop active join benchmark; cần kiểm chứng một benchmark/laptop |
-| `mart_performance_efficiency` | laptop_model, laptop_benchmark_result | Laptop active/visible join benchmark có điểm CPU; hiệu năng trên kg/Wh |
-| `mart_battery_vs_interest` | user_event_tracking, laptop_model, laptop_benchmark_result | Laptop active join benchmark và tổng interest |
-| `mart_user_os` | session_activity | OS và device type, đếm session |
+| `gold_daily_site_kpis` | session_day | Một ngày Việt Nam, đo active session-days và event thực tế |
+| `gold_behavior_funnel_daily` | session_funnel | Ngày Việt Nam của session-day; đếm các bước đã xuất hiện, không yêu cầu thứ tự |
+| `gold_brand_interest` | user_event_tracking, laptop_model, comparison_event_device, brand | Một brand trong catalog; detail views, distinct sessions và comparison interaction co-reach |
+| `gold_brand_comparison` | comparison_session_device, laptop_model, brand | Cặp brand ID đã canonicalize; đồng xuất hiện trong comparison interactions của session-day |
+| `gold_cpu_trend` | user_event_tracking, laptop_model | Tháng, CPU, brand; chỉ detail pageview, giữ cả nhóm ít view |
+| `gold_gpu_trend` | user_event_tracking, laptop_model | Tháng, GPU, brand; chỉ detail pageview, giữ cả nhóm ít view |
+| `gold_search_analytics` | user_event_tracking | Keyword đã lower/trim, tổng search và distinct sessions |
+| `gold_spec_popularity` | user_event_tracking, laptop_model | CPU, GPU, kích thước màn hình, dung lượng pin; chưa có RAM/storage |
+| `gold_performance_ranking` | laptop_model, laptop_benchmark_result | Laptop active join benchmark; chọn benchmark ID lớn nhất, một dòng/laptop |
+| `gold_performance_efficiency` | laptop_model, laptop_benchmark_result | Laptop active/visible join benchmark có điểm CPU; hiệu năng trên kg/Wh |
+| `gold_battery_vs_interest` | user_event_tracking, comparison_event_device, laptop_model, laptop_benchmark_result | Laptop active join benchmark đại diện, detail views và comparison interactions |
+| `gold_user_os` | session_activity | OS và device type, đếm session |
 
-Gold materialize thành table, rebuild theo DAG mỗi lần build; chưa phải incremental Gold. Join benchmark có thể tạo nhiều dòng/laptop nếu upstream có nhiều benchmark cho cùng laptop. Các tỷ lệ brand interest và cặp brand vẫn cần chuẩn hóa định nghĩa; xem [việc còn lại](remaining_work.md).
+Gold materialize thành table, rebuild theo DAG mỗi lần build; chưa phải incremental Gold. Silver chọn một benchmark ID lớn nhất mỗi laptop để tránh fanout; raw/Bronze giữ toàn bộ benchmark. Brand rate dùng giao của detail/comparison session, cặp brand được chuẩn hóa không có hướng.
 
 ### 5.3 Quy ước thời gian và metric
 
@@ -176,25 +158,26 @@ Gold materialize thành table, rebuild theo DAG mỗi lần build; chưa phải 
 - `detail_rate_pct`: session có cả pageview và detail / session có pageview trong ngày.
 - `comparison_rate_pct`: session có cả detail và comparison / session có detail trong ngày.
 - Hai tỷ lệ đo cùng đạt bước, không chứng minh thứ tự chuyển đổi.
-- Session funnel cũ gán về ngày bắt đầu session; CPU/GPU và một số view vẫn phụ thuộc timezone PostgreSQL khi cast ngày/tháng. Chưa đồng bộ toàn bộ về giờ Việt Nam.
+- Session funnel dùng cùng session-day với KPI; ngày/tháng trên các nhánh event dùng business_date/business_month theo giờ Việt Nam. Session activity giữ timestamp bắt đầu và thêm ngày bắt đầu riêng.
 
 ## 6. Serving và exposure
 
-App truy vấn trực tiếp 8 mart: daily KPI, brand interest, CPU trend, GPU trend, performance ranking, performance efficiency, battery vs interest và search analytics.
+App truy vấn đủ 12 Gold model qua data access layer có allowlist; query chỉ đọc schema Gold.
 
-Exposure khai báo dependency vào cả 12 mart; đó là lineage metadata, không chứng minh UI hiện sử dụng đủ 12 mart. Cache query 300 giây có thể giữ kết quả trước lượt build vừa xong. Chưa có publish/swap đồng loạt toàn bộ Gold, nên khi build lỗi giữa chừng app có thể thấy các mart từ những run khác nhau.
+App mới và exposure dùng đủ 12 Gold model, gồm cả behavior funnel, brand comparison, spec popularity và OS. Cache query 300 giây có thể giữ kết quả trước lượt build vừa xong. Chưa có publish/swap đồng loạt toàn bộ Gold, nên khi build lỗi giữa chừng app có thể thấy các mart từ những run khác nhau.
 
-Dashboard chưa sửa nhãn Today/All-Time và benchmark fallback. Dữ liệu đúng ở mart chưa bảo đảm người xem đọc đúng ý nghĩa trên UI.
+Dashboard đã sửa Today theo ngày thật, dùng nhãn session-days khi cộng nhiều ngày, giữ N/A và search literal. Latest received event không được trình bày như thời điểm job hoàn tất.
 
 ## 7. Backfill và phục hồi
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
-    R["Chọn start và end có timezone"] --> E["Extract theo server timestamp trong khoảng start-inclusive, end-exclusive"]
-    E --> U["Upsert raw; dimension refresh về hiện tại"]
-    U --> W{"Dữ liệu cũ nằm ngoài cửa sổ Silver?"}
-    W -->|"Có"| REBUILD["Rebuild hoặc backfill Silver và downstream trong dev trước"]
-    W -->|"Không"| BUILD["Freshness và dbt build thông thường"]
+    R["Chọn start và end có timezone"] --> E["Extract theo server timestamp<br/>trong khoảng start-inclusive,<br/>end-exclusive"]
+    E --> U["Upsert raw; dimension refresh về<br/>hiện tại"]
+    U --> W{"Dữ liệu cũ nằm ngoài cửa sổ<br/>Silver?"}
+    W -->|"Có"| REBUILD["Rebuild hoặc backfill Silver và<br/>downstream trong dev trước"]
+    W -->|"Không"| BUILD["Freshness và dbt build thông<br/>thường"]
     REBUILD --> VERIFY["Đối soát ID, version và metric"]
     BUILD --> VERIFY
 ```
@@ -206,29 +189,33 @@ Lệnh chạy, lưu ý Neon và database test: [ingestion operations](../guides/
 ## 8. CI và bằng chứng kiểm thử
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
     PR["Pull request hoặc push develop"] --> CI["validate.yml trên runner"]
     CI --> PG["PostgreSQL 16 service test riêng"]
-    PG --> UT["12 unit/config tests và 9 integration tests"]
-    UT --> PARSE["dbt parse bằng cấu hình giả, không kết nối warehouse"]
+    PG --> UT["Unit/config và PostgreSQL<br/>integration tests"]
+    UT --> PARSE["dbt parse bằng cấu hình giả"]
+    PARSE --> E2E["Fixture: full build, replay, 47<br/>data tests"]
+    E2E --> UI["Dashboard AppTest trên Gold đã<br/>build"]
 ```
 
 Validate còn compile Python trước khi chạy tests. Không cần credential Neon/ClickHouse. Mỗi integration test tạo schema UUID và dọn đúng schema đó trong database local test.
 
-Kết quả đã ghi nhận ngày 19/10/2026: 21/21 Python test pass; `dbt parse` nhận 29 model, 34 data test, 6 source và 1 exposure. Trong 34 data test có 32 generic và 2 singular. Freshness là lệnh riêng; exposure không tính là test. Chưa ghi nhận 34 data test pass trên Neon sau đợt sửa.
+Kết quả đã ghi nhận ngày 19/10/2026: 28/28 Python test pass; 31 model build thành công và 47 data test pass trên fixture lẫn nguồn thật 784.455 event trong dev local. Có 6 source và 1 exposure; 47 tests gồm 41 generic và 6 singular. Freshness là lệnh riêng; exposure không tính là test. Chưa deploy hoặc chạy build mới trên Neon. Bộ 85 dependency khóa đã cài sạch trên Windows và Linux.
 
 ## 9. Airflow Docker: hướng học tiếp, chưa triển khai
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
     subgraph LOCAL["Laptop - Docker: kế hoạch học tiếp"]
-        AF["Airflow: ingest -> freshness -> dbt build"]
+        AF["Airflow: ingest -> freshness -><br/>dbt build"]
         META["PostgreSQL metadata riêng"]
         AF -.-> META
     end
     SRC["ClickHouse"] --> AF
     AF --> N["Neon warehouse giữ nguyên"]
-    GIT["GitHub Actions"] --> CI["Chỉ validate và tests sau khi chuyển lịch"]
+    GIT["GitHub Actions"] --> CI["Chỉ validate và tests sau khi<br/>chuyển lịch"]
 ```
 
 Neon có thể tiếp tục giữ warehouse; chưa cần VPS nếu chấp nhận job chỉ chạy khi laptop/Docker hoạt động. Chỉ một orchestrator có lịch ghi cùng warehouse tại một thời điểm. Trước khi bật Airflow catchup phải nối data interval vào tham số backfill; script có tham số chưa đồng nghĩa DAG đã hỗ trợ backfill.

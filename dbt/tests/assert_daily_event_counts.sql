@@ -7,5 +7,5 @@ WITH expected AS (
 )
 SELECT COALESCE(e.event_date, a.event_date) AS event_date
 FROM expected e
-FULL OUTER JOIN {{ ref('mart_daily_site_kpis') }} a USING (event_date)
+FULL OUTER JOIN {{ ref('gold_daily_site_kpis') }} a USING (event_date)
 WHERE e.total_events IS DISTINCT FROM a.total_events

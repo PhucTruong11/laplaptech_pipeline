@@ -1,4 +1,4 @@
--- Gold: mart_spec_popularity
+-- Gold: gold_spec_popularity
 -- Which specs (CPU, GPU, screen size, RAM) appear most in viewed products
 -- Hướng 2: CPU/GPU Trend Analysis
 

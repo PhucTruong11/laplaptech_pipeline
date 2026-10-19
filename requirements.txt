@@ -1,17 +1,2 @@
-# Ingestion
-clickhouse-connect
-pandas
-pyarrow
-psycopg2-binary
-python-dotenv
-sqlalchemy
-
-# dbt
-dbt-postgres
-
-# Dashboard
-streamlit
-plotly
-streamlit-antd-components
-streamlit-aggrid
-streamlit-lottie
+# Install the exact runtime versions; direct dependency intent is in requirements.in.
+-r requirements.lock.txt

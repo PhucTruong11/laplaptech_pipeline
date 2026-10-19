@@ -1,114 +1,223 @@
 version: 2
-
 models:
-  # ── Silver tests ──────────────────────────────────────────────
-  - name: silver_brand
-    columns:
-      - name: brand_id
-        tests:
-          - unique
-          - not_null
-
-  - name: silver_cpu_model
-    columns:
-      - name: cpu_id
-        tests:
-          - unique
-          - not_null
-
-  - name: silver_gpu_model
-    columns:
-      - name: gpu_id
-        tests:
-          - unique
-          - not_null
-
-  - name: silver_laptop_model
-    columns:
-      - name: laptop_model_id
-        tests:
-          - unique
-          - not_null
-       # relationships
-      - name: brand_id
-        tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('silver_brand')
-                field: brand_id
-      - name: cpu_id
-        tests:
-          - relationships:
-              arguments:
-                to: ref('silver_cpu_model')
-                field: cpu_id
-      - name: gpu_id
-        tests:
-          - relationships:
-              arguments:
-                to: ref('silver_gpu_model')
-                field: gpu_id
-      # accepted values cho cờ trạng thái
-      - name: is_visible
-        tests:
-          - accepted_values:
-              arguments:
-                values: [true, false]
-      - name: is_active
-        tests:
-          - accepted_values:
-              arguments:
-                values: [true, false]
-
-  - name: silver_laptop_benchmark_result
-    columns:
-      - name: benchmark_id
-        tests:
-          - unique
-          - not_null
-      - name: laptop_model_id
-        tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('silver_laptop_model')
-                field: laptop_model_id    
-
-  - name: silver_user_event_tracking
-    columns:
-      - name: id
-        tests:
-          - unique
-          - not_null
-      - name: server_timestamp
-        tests:
-          - not_null
-      - name: session_id
-        tests:
-          - not_null
-      - name: event_name
-        tests:
-          - not_null
-
-  # ── Gold tests ────────────────────────────────────────────────
-  - name: mart_brand_interest
-    columns:
-      - name: brand_id
-        tests:
-          - unique
-          - not_null
-
-  - name: mart_performance_ranking
-    columns:
-      - name: laptop_model_id
-        tests:
-          - unique
-          - not_null
-
-  - name: mart_daily_site_kpis
-    columns:
-      - name: event_date
-        tests:
-          - unique
-          - not_null
+- name: silver_brand
+  columns:
+  - name: brand_id
+    tests:
+    - unique
+    - not_null
+- name: silver_cpu_model
+  columns:
+  - name: cpu_id
+    tests:
+    - unique
+    - not_null
+- name: silver_gpu_model
+  columns:
+  - name: gpu_id
+    tests:
+    - unique
+    - not_null
+- name: silver_laptop_model
+  columns:
+  - name: laptop_model_id
+    tests:
+    - unique
+    - not_null
+  - name: brand_id
+    tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('silver_brand')
+          field: brand_id
+  - name: cpu_id
+    tests:
+    - relationships:
+        arguments:
+          to: ref('silver_cpu_model')
+          field: cpu_id
+  - name: gpu_id
+    tests:
+    - relationships:
+        arguments:
+          to: ref('silver_gpu_model')
+          field: gpu_id
+  - name: is_visible
+    tests:
+    - accepted_values:
+        arguments:
+          values:
+          - true
+          - false
+  - name: is_active
+    tests:
+    - accepted_values:
+        arguments:
+          values:
+          - true
+          - false
+- name: silver_laptop_benchmark_result
+  columns:
+  - name: benchmark_id
+    tests:
+    - unique
+    - not_null
+  - name: laptop_model_id
+    tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('silver_laptop_model')
+          field: laptop_model_id
+    - unique
+- name: silver_user_event_tracking
+  columns:
+  - name: id
+    tests:
+    - unique
+    - not_null
+  - name: server_timestamp
+    tests:
+    - not_null
+  - name: session_id
+    tests:
+    - not_null
+  - name: event_name
+    tests:
+    - not_null
+- name: gold_brand_interest
+  columns:
+  - name: brand_id
+    tests:
+    - unique
+    - not_null
+  description: Brand, all-time distinct sessions. Comparison co-reach uses the detail-session
+    intersection.
+  config:
+    meta:
+      grain: Brand, all-time distinct sessions. Comparison co-reach uses the detail-session
+        intersection.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_performance_ranking
+  columns:
+  - name: laptop_model_id
+    tests:
+    - unique
+    - not_null
+  description: Active laptop; one representative benchmark chosen by highest benchmark
+    ID, not a timestamp.
+  config:
+    meta:
+      grain: Active laptop; one representative benchmark chosen by highest benchmark
+        ID, not a timestamp.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_daily_site_kpis
+  columns:
+  - name: event_date
+    tests:
+    - unique
+    - not_null
+  description: Vietnam calendar day; session counts are daily active sessions. Sums
+    across days are session-days.
+  config:
+    meta:
+      grain: Vietnam calendar day; session counts are daily active sessions. Sums
+        across days are session-days.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_battery_vs_interest
+  columns:
+  - name: laptop_model_id
+    tests:
+    - unique
+    - not_null
+  description: Active laptop; detail pageviews and attributed comparison interactions.
+  config:
+    meta:
+      grain: Active laptop; detail pageviews and attributed comparison interactions.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_performance_efficiency
+  columns:
+  - name: laptop_model_id
+    tests:
+    - unique
+    - not_null
+  description: Active visible laptop with benchmark; missing denominators produce
+    NULL.
+  config:
+    meta:
+      grain: Active visible laptop with benchmark; missing denominators produce NULL.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_behavior_funnel_daily
+  columns:
+  - name: event_date
+    tests:
+    - unique
+    - not_null
+  description: Vietnam calendar day; independent daily step reach, not ordered conversion.
+  config:
+    meta:
+      grain: Vietnam calendar day; independent daily step reach, not ordered conversion.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_search_analytics
+  columns:
+  - name: search_keyword
+    tests:
+    - unique
+    - not_null
+  description: Normalized keyword; search events and all-time distinct sessions.
+  config:
+    meta:
+      grain: Normalized keyword; search events and all-time distinct sessions.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_brand_comparison
+  description: Canonical unordered brand ID pair, based on attributed comparison interactions
+    in the same session-day.
+  config:
+    meta:
+      grain: Canonical unordered brand ID pair, based on attributed comparison interactions
+        in the same session-day.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_cpu_trend
+  description: Vietnam calendar month, CPU name, brand; all detail views including
+    low-volume groups.
+  config:
+    meta:
+      grain: Vietnam calendar month, CPU name, brand; all detail views including low-volume
+        groups.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_gpu_trend
+  description: Vietnam calendar month, GPU name, brand; all detail views including
+    low-volume groups.
+  config:
+    meta:
+      grain: Vietnam calendar month, GPU name, brand; all detail views including low-volume
+        groups.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_spec_popularity
+  description: CPU, GPU, screen size and battery capacity; detail views mapped to
+    the current catalog.
+  config:
+    meta:
+      grain: CPU, GPU, screen size and battery capacity; detail views mapped to the
+        current catalog.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: gold_user_os
+  description: First non-empty OS/device-type per all-time session; includes Unknown.
+  config:
+    meta:
+      grain: First non-empty OS/device-type per all-time session; includes Unknown.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: silver_session_day
+  description: Session ID + Vietnam calendar day, common source for daily KPI and
+    reach.
+  config:
+    meta:
+      grain: Session ID + Vietnam calendar day, common source for daily KPI and reach.
+      business_timezone: Asia/Ho_Chi_Minh
+- name: silver_comparison_event_device
+  description: Event ID + valid laptop ID; arrays deduplicated and expanded.
+  config:
+    meta:
+      grain: Event ID + valid laptop ID; arrays deduplicated and expanded.
+      business_timezone: Asia/Ho_Chi_Minh

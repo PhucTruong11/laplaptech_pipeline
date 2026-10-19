@@ -1,20 +1,20 @@
--- Gold: mart_battery_vs_interest
+-- Gold: gold_battery_vs_interest
 -- Correlation: Do laptops with better battery life get more clicks?
 -- Hướng 3: Performance vs Interest (Level 3 challenge)
 
-WITH product_interest AS (
-    SELECT
-        evt.device_id::int                      AS laptop_model_id,
-        COUNT(*) FILTER (WHERE evt.event_name = 'pageview')
-                                                AS total_views,
-        COUNT(DISTINCT evt.session_id) FILTER (WHERE evt.event_name = 'pageview')
-                                                AS view_sessions,
-        COUNT(*) FILTER (WHERE evt.page_name = 'CompareDevice')
-                                                AS comparison_events
-    FROM {{ ref('silver_user_event_tracking') }} evt
-    WHERE evt.device_id IS NOT NULL
-      AND evt.device_id != ''
-    GROUP BY evt.device_id
+WITH details AS (
+    SELECT device_id::int AS laptop_model_id, COUNT(*) AS total_views,
+        COUNT(DISTINCT session_id) AS view_sessions
+    FROM {{ ref('silver_user_event_tracking') }}
+    WHERE event_name = 'pageview' AND page_name = 'DeviceDetail' AND device_id IS NOT NULL
+    GROUP BY device_id::int
+), comparisons AS (
+    SELECT laptop_model_id, COUNT(DISTINCT event_id) AS comparison_events
+    FROM {{ ref('silver_comparison_event_device') }} GROUP BY laptop_model_id
+), product_interest AS (
+    SELECT COALESCE(d.laptop_model_id,c.laptop_model_id) AS laptop_model_id,
+        d.total_views,d.view_sessions,c.comparison_events
+    FROM details d FULL OUTER JOIN comparisons c USING (laptop_model_id)
 )
 
 SELECT

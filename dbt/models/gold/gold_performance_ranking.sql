@@ -1,4 +1,4 @@
--- Gold: mart_performance_ranking
+-- Gold: gold_performance_ranking
 -- Laptops ranked by benchmark scores within brand segments
 -- Hướng 3: Performance vs Price Segment
 

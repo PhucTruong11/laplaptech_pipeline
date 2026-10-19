@@ -7,6 +7,8 @@ và backfill event theo khoảng thời gian. Chưa đổi sang Airflow.
 Luồng dữ liệu và failure path hiện tại: [data flow](../architecture/data_flow.md).
 Các việc chưa sửa: [remaining work](../architecture/remaining_work.md).
 
+Bản nâng cấp mới nhất: [Gold upgrade](gold_upgrade.md).
+
 ## Cấu hình
 
 - Neon: database đã được cấp sẵn; `POSTGRES_CREATE_DATABASE=false` (mặc định).
@@ -88,13 +90,12 @@ watermark dạng numeric/Decimal, backfill và daily KPI sát nửa đêm Việt
 - Raw và Silver có thêm test khóa event. Các test dữ liệu chạy thật trong `dbt build`; parse không xác nhận dữ liệu trên Neon.
 - Quyết định kiến trúc và lịch sử sửa nằm ở [upgrade plan](../architecture/upgrade_plan.md); trạng thái hiện tại được tách khỏi ghi chép Sprint 1–3.
 
-Dependencies hiện vẫn chưa khóa phiên bản; việc tạo lock đa nền tảng có thể thực hiện riêng.
-Dashboard chưa được sửa trong lần này: SUM daily sessions phải mang nghĩa session-days, còn nhãn Today và N/A vẫn cần sửa theo hướng dẫn tổng thể.
+Dependencies runtime đã khóa 85 package và cài sạch trên Windows/Linux. Dashboard đã sửa Today, session-days, N/A, literal search và sử dụng đủ 12 Gold model; xem Gold upgrade.
 
 ## Kết quả kiểm chứng ngày 19/10/2026
 
-- 21/21 test pass: 12 unit/configuration tests và 9 integration tests trên PostgreSQL 16 container local.
+- 28/28 Python test pass: 17 unit/helper tests, 9 PostgreSQL integration và 2 Streamlit AppTest.
 - Có kiểm tra rollback sau TRUNCATE/DELETE, view, hai writer đồng thời và SQL KPI thật.
-- `dbt parse` thành công; manifest có 29 model và 34 data test. Đây là số test đã parse, chưa phải 34 data test pass trên Neon.
+- 31 model build thành công và 47 data test pass trên dev, với fixture và nguồn ClickHouse thật 784.455 event. Replay không đổi row counts.
 - YAML và Python compile pass; `pip check` không phát hiện dependency hỏng.
-- Không chạy ingestion/dbt build trên ClickHouse hoặc Neon thật trong lần sửa này.
+- Đã đọc ClickHouse thật vào dev local và chạy build/replay; không ghi thay đổi vào Neon. Report nằm trong docs/validation/.

@@ -11,6 +11,8 @@ env/
 
 # Environment variables
 .env
+.env.*
+!.env.example
 
 # IDE
 .idea/
@@ -28,6 +30,7 @@ dbt/dbt_packages/
 dbt/logs/
 
 # Streamlit
+.streamlit/secrets.toml
 streamlit_app/.streamlit/secrets.toml
 
 # Scratch / temp files

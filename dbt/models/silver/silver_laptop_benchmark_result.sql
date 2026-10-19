@@ -1,6 +1,12 @@
 -- Silver: laptop_benchmark_result — cleaned benchmark scores
 -- Casts string/mixed values to proper numeric types
 
+-- Mỗi laptop chọn benchmark ID lớn nhất (quy tắc deterministic, không suy đoán thời gian).
+WITH selected AS (
+    SELECT *, ROW_NUMBER() OVER (PARTITION BY laptop_model_id ORDER BY id::bigint DESC) AS version_rank
+    FROM {{ ref('bronze_laptop_benchmark_result') }}
+    WHERE laptop_model_id IS NOT NULL
+)
 SELECT
     id::int                                     AS benchmark_id,
     laptop_model_id::int                        AS laptop_model_id,
@@ -20,5 +26,5 @@ SELECT
     ROUND(gaming_battery_result_minutes::numeric / 60.0, 1)
                                                 AS gaming_battery_hours
 
-FROM {{ ref('bronze_laptop_benchmark_result') }}
-WHERE laptop_model_id IS NOT NULL
+FROM selected
+WHERE version_rank = 1

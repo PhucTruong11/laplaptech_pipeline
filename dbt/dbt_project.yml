@@ -3,6 +3,9 @@ version: '1.0.0'
 
 profile: 'laplaptech_pipeline'
 
+vars:
+  business_timezone: 'Asia/Ho_Chi_Minh'
+
 model-paths: ["models"]
 analysis-paths: ["analyses"]
 test-paths: ["tests"]
