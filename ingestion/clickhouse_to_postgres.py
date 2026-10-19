@@ -1,26 +1,26 @@
-"""
-LaplapTech Pipeline — ClickHouse to PostgreSQL Ingestion
-Script chịu trách nhiệm trích xuất dữ liệu (Extract) từ nguồn ClickHouse ``
-và tải (Load) nguyên bản vào schema `raw` của PostgreSQL
+"""Nạp ClickHouse vào PostgreSQL raw, atomic theo mỗi bảng.
 
-- Full Refresh (TRUNCATE + Append): Dành cho các bảng danh mục (dimension) và bảng tra cứu nhỏ.
-- Incremental Load (Watermark + Lookback Window): Dành cho bảng sự kiện lớn (user_event_tracking).
+Dimension dùng full refresh; event dùng watermark/lookback hoặc khoảng backfill.
+Database managed như Neon phải được cấp sẵn, trừ khi bật provisioning rõ ràng.
 """
 
+import argparse
+import json
+import logging
+import math
 import os
 import sys
-import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 
 import clickhouse_connect
 import pandas as pd
-from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import URL
 
-# Tải các biến môi trường từ file .env
-load_dotenv()
-
-# Cấu hình định dạng logging chuẩn
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -28,413 +28,316 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Danh sách bảng kích thước nhỏ / bảng danh mục cần làm mới toàn bộ mỗi lần chạy (Full Refresh)
 FULL_REFRESH_TABLES = [
-    "brand",
-    "cpu_model",
-    "gpu_model",
-    "laptop_model",
-    "laptop_benchmark_result",
+    "brand", "cpu_model", "gpu_model", "laptop_model", "laptop_benchmark_result"
 ]
-
-# Danh sách bảng sự kiện lớn cần nạp gia tăng (Incremental) kèm tên cột mốc thời gian (Watermark)
-INCREMENTAL_TABLES = {
-    "user_event_tracking": "event_received_on_server_timestamp",
-}
-
-# Tên schema đích trong PostgreSQL để chứa dữ liệu thô ban đầu
+INCREMENTAL_TABLES = {"user_event_tracking": "event_received_on_server_timestamp"}
 RAW_SCHEMA = "raw"
 
 
-# Các hàm tiện ích & Khởi tạo kết nối (Helpers & Connections)
 def require_env(name: str) -> str:
-    """
-    Lấy giá trị của một biến môi trường bắt buộc.
-    Nếu biến chưa được thiết lập, ném ra ngoại lệ RuntimeError để dừng pipeline ngay lập tức.
-    """
     value = os.getenv(name)
     if not value:
         raise RuntimeError(f"Thiếu biến môi trường bắt buộc: {name}")
     return value
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    if value.lower() not in {"true", "false", "1", "0"}:
+        raise ValueError(f"{name} phải là true/false hoặc 1/0")
+    return value.lower() in {"true", "1"}
+
+
 def get_clickhouse_client():
-    """
-    Khởi tạo ClickHouse client kết nối tới máy chủ nguồn.
-    Lưu ý: Cổng 80 chạy giao thức HTTP thuần nên secure=False.
-    """
+    port = int(os.getenv("CLICKHOUSE_PORT") or "80")
     return clickhouse_connect.get_client(
-        host=require_env("CLICKHOUSE_HOST"),
-        port=int(os.getenv("CLICKHOUSE_PORT", "8443")),
+        host=require_env("CLICKHOUSE_HOST"), port=port,
         username=require_env("CLICKHOUSE_USER"),
         password=require_env("CLICKHOUSE_PASSWORD"),
-        database=os.getenv("CLICKHOUSE_DATABASE", "laplaptech"),
-        secure=False,  # Cổng 80 là giao thức HTTP thông thường
+        database=os.getenv("CLICKHOUSE_DATABASE") or "laplaptech",
+        secure=env_bool("CLICKHOUSE_SECURE", default=port in {443, 8443}),
+    )
+
+
+def postgres_url(database: str | None = None) -> URL:
+    """URL.create giữ nguyên password có @, /, : mà không cần escape thủ công."""
+    return URL.create(
+        "postgresql+psycopg2",
+        username=require_env("POSTGRES_USER"),
+        password=require_env("POSTGRES_PASSWORD"),
+        host=os.getenv("POSTGRES_HOST") or "localhost",
+        port=int(os.getenv("POSTGRES_PORT") or "5432"),
+        database=database or os.getenv("POSTGRES_DATABASE") or "laplaptech_pipeline",
+        query={"sslmode": os.getenv("POSTGRES_SSLMODE") or "prefer"},
     )
 
 
 def get_postgres_engine():
-    """
-    Khởi tạo engine SQLAlchemy kết nối đến cơ sở dữ liệu PostgreSQL đích.
-    Sử dụng driver psycopg2 chuẩn cho hiệu năng cao.
-    """
-    user = require_env("POSTGRES_USER")
-    password = require_env("POSTGRES_PASSWORD")
-    host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
-    database = os.getenv("POSTGRES_DATABASE", "laplaptech_pipeline")
-    url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
-    return create_engine(url)
+    return create_engine(postgres_url(), pool_pre_ping=True)
+
+
+def quote_ident(conn, name: str) -> str:
+    return conn.dialect.identifier_preparer.quote_identifier(name)
+
+
+def raw_relation(conn, table_name: str) -> str:
+    return f"{quote_ident(conn, RAW_SCHEMA)}.{quote_ident(conn, table_name)}"
 
 
 def ensure_database_exists():
-    """
-    Kiểm tra xem Database đích trong PostgreSQL đã tồn tại chưa.
-    Nếu chưa, kết nối tạm vào database mặc định 'postgres' với quyền AUTOCOMMIT để tạo mới database.
-    """
-    user = require_env("POSTGRES_USER")
-    password = require_env("POSTGRES_PASSWORD")
-    host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
-    database = os.getenv("POSTGRES_DATABASE", "laplaptech_pipeline")
-
-    # Kết nối vào DB 'postgres' mặc định để kiểm tra và cấp phát DB mới nếu cần
-    admin_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/postgres"
-    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-
-    with admin_engine.connect() as conn:
-        result = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = :db"),
-            {"db": database},
-        )
-        if not result.fetchone():
-            conn.execute(text(f'CREATE DATABASE "{database}"'))
-            logger.info(f"Đã khởi tạo cơ sở dữ liệu mới: {database}")
-        else:
-            logger.info(f"Cơ sở dữ liệu đã tồn tại sẵn: {database}")
-
-    admin_engine.dispose()
+    """Chỉ tạo DB khi POSTGRES_CREATE_DATABASE=true; Neon không cần bước này."""
+    if not env_bool("POSTGRES_CREATE_DATABASE"):
+        return
+    database = postgres_url().database
+    admin_engine = create_engine(postgres_url("postgres"), isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as conn:
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :db"), {"db": database}
+            ).scalar()
+            if not exists:
+                conn.execute(text(f"CREATE DATABASE {quote_ident(conn, database)}"))
+    finally:
+        admin_engine.dispose()
 
 
 def ensure_schema_exists(engine):
-    """
-    Đảm bảo schema chứa dữ liệu thô (raw) đã tồn tại trong PostgreSQL.
-    Tạo mới nếu chưa có bằng lệnh CREATE SCHEMA IF NOT EXISTS.
-    """
-    with engine.connect() as conn:
-        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {RAW_SCHEMA}"))
-        conn.commit()
-    logger.info(f"Schema '{RAW_SCHEMA}' đã sẵn sàng.")
+    with engine.begin() as conn:
+        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {quote_ident(conn, RAW_SCHEMA)}"))
 
 
-# Trích xuất và Nạp dữ liệu (Extraction & Loading)
+def lock_raw_table(conn, table_name: str):
+    # Transaction lock tương thích pooler; không giữ session lock.
+    conn.execute(text("SET LOCAL lock_timeout = '30s'"))
+    conn.execute(
+        text("SELECT pg_advisory_xact_lock(74621, hashtext(:resource))"),
+        {"resource": f"{RAW_SCHEMA}.{table_name}"},
+    )
+
+
+def assert_same_columns(conn, table_name: str, df: pd.DataFrame):
+    existing = {c["name"] for c in inspect(conn).get_columns(table_name, schema=RAW_SCHEMA)}
+    incoming = set(df.columns)
+    if existing != incoming:
+        raise ValueError(
+            f"Schema thay đổi ở {table_name}: "
+            f"thiếu={sorted(existing - incoming)}, thừa={sorted(incoming - existing)}"
+        )
+
+
+def write_frame(df: pd.DataFrame, table_name: str, conn):
+    if not df.columns.is_unique or len(df.columns) == 0:
+        raise ValueError("Batch phải có tên cột duy nhất và ít nhất một cột")
+    df.to_sql(
+        table_name, con=conn, schema=RAW_SCHEMA, if_exists="append", index=False,
+        chunksize=max(1, min(1000, 60000 // len(df.columns))), method="multi",
+    )
+
+
+def prepare_event_batch(
+    df: pd.DataFrame,
+    primary_key: str = "id",
+    timestamp_col: str = "event_received_on_server_timestamp",
+) -> pd.DataFrame:
+    """Giữ version mới nhất mỗi ID; xung đột version bằng nhau phải được điều tra."""
+    if df.empty:
+        return df.copy()
+    if not df.columns.is_unique:
+        raise ValueError("Batch có tên cột trùng nhau")
+    if not {primary_key, timestamp_col}.issubset(df.columns):
+        raise ValueError("Batch thiếu ID hoặc watermark")
+    batch = df.copy()
+    if batch[primary_key].isna().any() or batch[primary_key].astype("string").str.strip().eq("").any():
+        raise ValueError("Event thiếu ID")
+    batch[timestamp_col] = pd.to_numeric(batch[timestamp_col], errors="raise")
+    if not batch[timestamp_col].map(math.isfinite).all():
+        raise ValueError("Watermark phải là epoch giây hữu hạn, không được NULL")
+    for column in ("event_data", "device"):
+        if column in batch:
+            batch[column] = batch[column].map(
+                lambda value: json.dumps(value, sort_keys=True, ensure_ascii=False)
+                if isinstance(value, (dict, list)) else value
+            )
+    latest = batch.groupby(primary_key)[timestamp_col].transform("max")
+    candidates = batch.loc[batch[timestamp_col].eq(latest)].drop_duplicates()
+    if candidates.duplicated(primary_key).any():
+        raise ValueError("Cùng ID/watermark mới nhất nhưng payload khác nhau; cần version từ nguồn")
+    return candidates.reset_index(drop=True)
+
+
 def extract_full_table(ch_client, table_name: str) -> pd.DataFrame:
-    """
-    Trích xuất toàn bộ dữ liệu từ 1 bảng trong ClickHouse.
-    Thường áp dụng cho các bảng danh mục nhỏ như brand, cpu_model, gpu_model...
-    """
-    query = f"SELECT * FROM {table_name}"
-    logger.info(f"Đang trích xuất toàn bộ bảng: {table_name}")
-    result = ch_client.query(query)
-    df = pd.DataFrame(result.result_rows, columns=result.column_names)
-    logger.info(f"  → Trích xuất thành công {len(df):,} dòng.")
-    return df
+    if table_name not in FULL_REFRESH_TABLES:
+        raise ValueError(f"Không phải bảng full refresh: {table_name}")
+    result = ch_client.query(f"SELECT * FROM {table_name}")
+    frame = pd.DataFrame(result.result_rows, columns=result.column_names)
+    logger.info("Extract %s: %s dòng", table_name, len(frame))
+    return frame
+
+
+def validate_range(start_epoch, end_epoch):
+    if (start_epoch is None) != (end_epoch is None):
+        raise ValueError("Backfill cần cả start và end")
+    if start_epoch is not None:
+        if not all(math.isfinite(v) for v in (start_epoch, end_epoch)) or start_epoch >= end_epoch:
+            raise ValueError("Backfill cần start < end và epoch hữu hạn")
 
 
 def extract_incremental(
-    ch_client, table_name: str, timestamp_col: str, engine
+    ch_client, table_name: str, timestamp_col: str, engine,
+    *, start_epoch: float | None = None, end_epoch: float | None = None,
 ) -> pd.DataFrame:
-    """
-    Trích xuất dữ liệu gia tăng (Incremental) từ ClickHouse dựa vào Watermark kết hợp Lookback Window.
-
-    Quy trình:
-    1. Truy vấn PostgreSQL để tìm mốc thời gian lớn nhất (MAX timestamp) hiện có trong bảng raw.
-    2. Nếu đã có dữ liệu cũ:
-       - Trừ lùi 1 giờ (Lookback Window = 1 hour / 3600 seconds) để thu thập cả 'Late-arriving data' 
-         (dữ liệu ghi chậm do lag mạng, retry).
-       - Xử lý linh hoạt cả kiểu int/float (epoch timestamp) và kiểu chuỗi/datetime.
-    3. Nếu chưa có dữ liệu (lần chạy đầu tiên): Kéo toàn bộ bảng.
-    4. Dữ liệu trùng lặp do cửa sổ lookback sinh ra sẽ được tầng dbt Silver khử trùng (Deduplication).
-    """
-    max_ts = None
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(
-                text(
-                    f'SELECT MAX("{timestamp_col}") FROM {RAW_SCHEMA}.{table_name}'
-                )
-            )
-            row = result.fetchone()
-            if row and row[0]:
-                max_ts = row[0]
-    except Exception:
-        # Nếu bảng chưa tồn tại trong PostgreSQL thì sẽ thực hiện full load ban đầu
-        pass
-
-    if max_ts:
-        # Trường hợp timestamp dạng Epoch (số nguyên / giây): lùi 3600 giây (1 giờ)
-        if isinstance(max_ts, (int, float)):
-            lookback_ts = int(max_ts) - 3600
-            query_val = f"{lookback_ts}"
-        else:
-            # Trường hợp timestamp dạng chuỗi hoặc datetime: lùi 1 giờ bằng timedelta
-            if isinstance(max_ts, str):
-                max_ts_dt = pd.to_datetime(max_ts)
-            else:
-                max_ts_dt = max_ts
-            lookback_ts = max_ts_dt - timedelta(hours=1)
-            query_val = f"'{lookback_ts.strftime('%Y-%m-%d %H:%M:%S')}'"
-
-        # Lấy các bản ghi từ mốc lookback_ts trở đi
-        query = f"SELECT * FROM {table_name} WHERE {timestamp_col} >= {query_val}"
-        logger.info(
-            f"Trích xuất Incremental: {table_name} (Lookback Window từ {lookback_ts})"
-        )
+    if INCREMENTAL_TABLES.get(table_name) != timestamp_col:
+        raise ValueError("Bảng hoặc watermark không thuộc cấu hình incremental")
+    validate_range(start_epoch, end_epoch)
+    query = f"SELECT * FROM {table_name}"
+    parameters = {}
+    if start_epoch is not None:
+        query += f" WHERE {timestamp_col} >= {{start:Float64}} AND {timestamp_col} < {{end:Float64}}"
+        parameters = {"start": start_epoch, "end": end_epoch}
     else:
-        query = f"SELECT * FROM {table_name}"
-        logger.info(
-            f"Trích xuất Full lần đầu: {table_name}"
-        )
-
-    result = ch_client.query(query)
-    df = pd.DataFrame(result.result_rows, columns=result.column_names)
-    logger.info(f"  → Trích xuất được {len(df):,} dòng.")
-    return df
+        max_ts = None
+        with engine.connect() as conn:
+            if inspect(conn).has_table(table_name, schema=RAW_SCHEMA):
+                max_ts = conn.execute(text(
+                    f"SELECT MAX({quote_ident(conn, timestamp_col)}) FROM {raw_relation(conn, table_name)}"
+                )).scalar()
+        if max_ts is not None:
+            max_epoch = float(max_ts)
+            lookback = int(os.getenv("INGESTION_LOOKBACK_SECONDS") or "7200")
+            if not math.isfinite(max_epoch) or lookback < 0:
+                raise ValueError("Watermark không hữu hạn hoặc lookback âm")
+            query += f" WHERE {timestamp_col} >= {{watermark:Float64}}"
+            parameters = {"watermark": max_epoch - lookback}
+    # Lỗi quyền/kết nối khi đọc MAX phải fail, không âm thầm full extraction.
+    result = ch_client.query(query, parameters=parameters)
+    frame = pd.DataFrame(result.result_rows, columns=result.column_names)
+    logger.info("Extract %s: %s dòng (backfill=%s)", table_name, len(frame), start_epoch is not None)
+    return frame
 
 
 def load_to_postgres(
-    df: pd.DataFrame, table_name: str, engine, if_exists: str = "append", truncate_first: bool = False
+    df: pd.DataFrame, table_name: str, engine,
+    if_exists: str = "append", truncate_first: bool = False,
 ):
-    """
-    Tải DataFrame vào bảng tương ứng trong schema 'raw' của PostgreSQL.
-
-    Điểm kiến trúc quan trọng:
-    - truncate_first=True: Áp dụng cho các bảng Dimension (Full Refresh).
-      Dùng `TRUNCATE TABLE raw.<table_name>` thay vì `DROP TABLE ... CASCADE` hoặc `if_exists='replace'`.
-      Lý do: Lệnh DROP sẽ vô tình xóa luôn các VIEW phụ thuộc ở tầng Bronze trong PostgreSQL mà dbt đã tạo,
-      khiến dbt bị gãy (relation does not exist). TRUNCATE giữ nguyên cấu trúc bảng và các view phụ thuộc!
-    - if_exists="append": Ghi tiếp dữ liệu vào bảng sau khi đã dọn sạch (hoặc nạp nối tiếp cho Incremental).
-    - chunksize=10000 & method="multi": Bulk insert theo từng lô 10k bản ghi để tối ưu tốc độ và bộ nhớ RAM.
-    """
+    if table_name not in FULL_REFRESH_TABLES or if_exists != "append":
+        raise ValueError("Loader dimension chỉ hỗ trợ bảng cấu hình sẵn và append")
     if df.empty:
-        logger.info(f"  → 0 dòng mới cần nạp cho bảng {table_name}")
-        return
-
-    logger.info(f"Đang nạp {len(df):,} dòng vào {RAW_SCHEMA}.{table_name}...")
-
-    try:
-        if truncate_first:
-            with engine.begin() as conn:
-                # Kiểm tra bảng có tồn tại chưa trước khi TRUNCATE
-                # Lần chạy đầu tiên (fresh database) sẽ bỏ qua TRUNCATE vì bảng chưa tồn tại
-                table_exists = conn.execute(
-                    text(
-                        f"""
-                        SELECT EXISTS (
-                            SELECT 1 FROM information_schema.tables
-                            WHERE table_schema = '{RAW_SCHEMA}'
-                            AND table_name = '{table_name}'
-                        )
-                        """
-                    )
-                ).scalar()
-
-                if table_exists:
-                    # TRUNCATE giữ nguyên view Bronze, đảm bảo tính ổn định (Idempotency)
-                    conn.execute(text(f"TRUNCATE TABLE {RAW_SCHEMA}.{table_name}"))
-                    logger.info(f"  → Đã dọn sạch bảng (TRUNCATE): {table_name}")
-                else:
-                    logger.info(f"  → Bảng chưa tồn tại, bỏ qua TRUNCATE (lần chạy đầu tiên): {table_name}")
-
-        # Nạp dữ liệu vào bảng bằng cơ chế bulk insert
-        df.to_sql(
-            table_name,
-            con=engine,
-            schema=RAW_SCHEMA,
-            if_exists="append",
-            index=False,
-            chunksize=10000,
-            method="multi",
-        )
-        logger.info(f"  → Nạp thành công {len(df):,} dòng vào PostgreSQL ({table_name})")
-    except Exception as e:
-        logger.error(f"Lỗi khi nạp bảng {table_name}: {e}")
-        raise
+        raise ValueError(f"Nguồn {table_name} rỗng; giữ nguyên dữ liệu cũ")
+    with engine.begin() as conn:
+        lock_raw_table(conn, table_name)
+        exists = inspect(conn).has_table(table_name, schema=RAW_SCHEMA)
+        if exists:
+            assert_same_columns(conn, table_name, df)
+        if exists and truncate_first:
+            conn.execute(text(f"TRUNCATE TABLE {raw_relation(conn, table_name)}"))
+        write_frame(df, table_name, conn)
+    logger.info("Commit %s: %s dòng", table_name, len(df))
 
 
 def load_incremental_to_postgres(
     df: pd.DataFrame, table_name: str, engine, primary_key: str = "id"
 ):
-    """
-    Nạp dữ liệu gia tăng (Incremental) vào PostgreSQL theo cơ chế Physical Idempotency (Atomic Upsert).
-    
-    Giải quyết vấn đề Sprint 3 (Physical vs Logical Idempotency):
-    1. Dedup nội bộ DataFrame vừa trích xuất để đảm bảo không trùng ID trong batch.
-    2. Nếu bảng RAW chưa tồn tại: nạp thẳng bằng bulk insert.
-    3. Nếu bảng RAW đã có:
-       - Tạo bảng tạm Staging `_stg_<table_name>`.
-       - Nạp lô mới vào Staging.
-       - Thực hiện Transaction nguyên tử: DELETE các khóa trùng trong bảng RAW rồi INSERT dữ liệu mới.
-       - DROP bảng Staging trong khối finally để bảo vệ dung lượng 1GB của Neon.
-    
-    → Kết quả: Chạy Ingestion bao nhiêu lần thì bảng RAW vẫn giữ nguyên vẹn dữ liệu chuẩn,
-      không bị phình to dung lượng bởi các bản ghi trùng lặp trong cửa sổ Lookback!
-    """
-    if df.empty:
-        logger.info(f"  → 0 dòng mới cần nạp cho bảng {table_name}")
+    if table_name not in INCREMENTAL_TABLES or primary_key != "id":
+        raise ValueError("Loader event chỉ hỗ trợ bảng cấu hình sẵn với khóa id")
+    ts_col = INCREMENTAL_TABLES[table_name]
+    batch = prepare_event_batch(df, primary_key, ts_col)
+    if batch.empty:
+        logger.info("Không có event cần nạp: %s", table_name)
         return
-
-    # 1. Khử trùng lặp nội bộ trong chính lô dữ liệu vừa trích xuất
-    initial_len = len(df)
-    df = df.drop_duplicates(subset=[primary_key], keep="last")
-    if len(df) < initial_len:
-        logger.info(f"  → Đã lọc bỏ {initial_len - len(df):,} dòng trùng nội bộ trong batch.")
-
-    logger.info(f"Đang nạp {len(df):,} dòng gia tăng (Staging Upsert) vào {RAW_SCHEMA}.{table_name}...")
-
-    # 2. Kiểm tra xem bảng chính đã tồn tại trong PostgreSQL chưa
-    with engine.connect() as conn:
-        table_exists = conn.execute(
-            text(
-                f"""
-                SELECT EXISTS (
-                    SELECT 1 FROM information_schema.tables
-                    WHERE table_schema = '{RAW_SCHEMA}'
-                    AND table_name = '{table_name}'
-                )
-                """
-            )
-        ).scalar()
-
-    if not table_exists:
-        # Lần chạy đầu tiên khi chưa có bảng: nạp trực tiếp
-        df.to_sql(
-            table_name,
-            con=engine,
-            schema=RAW_SCHEMA,
-            if_exists="append",
-            index=False,
-            chunksize=10000,
-            method="multi",
-        )
-        logger.info(f"  → Khởi tạo bảng và nạp thành công {len(df):,} dòng vào {RAW_SCHEMA}.{table_name}")
-        return
-
-    # 3. Bảng đã tồn tại: Sử dụng bảng Staging để Upsert nguyên tử
-    stg_table = f"_stg_{table_name}"
     with engine.begin() as conn:
-        conn.execute(text(f"DROP TABLE IF EXISTS {RAW_SCHEMA}.{stg_table}"))
-        conn.execute(
-            text(f"CREATE TABLE {RAW_SCHEMA}.{stg_table} (LIKE {RAW_SCHEMA}.{table_name} INCLUDING DEFAULTS)")
-        )
-
-    try:
-        # Bulk load dữ liệu mới vào bảng Staging
-        df.to_sql(
-            stg_table,
-            con=engine,
-            schema=RAW_SCHEMA,
-            if_exists="append",
-            index=False,
-            chunksize=10000,
-            method="multi",
-        )
-
-        with engine.begin() as conn:
-            # Xóa các dòng cũ trong RAW có ID trùng với lô mới (trong cửa sổ Lookback)
-            del_res = conn.execute(
-                text(
-                    f"""
-                    DELETE FROM {RAW_SCHEMA}.{table_name}
-                    WHERE {primary_key} IN (SELECT {primary_key} FROM {RAW_SCHEMA}.{stg_table})
-                    """
+        lock_raw_table(conn, table_name)
+        if not inspect(conn).has_table(table_name, schema=RAW_SCHEMA):
+            write_frame(batch, table_name, conn)
+        else:
+            assert_same_columns(conn, table_name, batch)
+            target = raw_relation(conn, table_name)
+            stg_name = f"_stg_{table_name}_{uuid4().hex[:12]}"
+            staging = raw_relation(conn, stg_name)
+            pk, ts = quote_ident(conn, primary_key), quote_ident(conn, ts_col)
+            columns = ", ".join(quote_ident(conn, c) for c in batch.columns)
+            conn.execute(text(f"CREATE TABLE {staging} (LIKE {target})"))
+            write_frame(batch, stg_name, conn)
+            conn.execute(text(f"""
+                DELETE FROM {staging} s USING {target} t
+                WHERE s.{pk} = t.{pk} AND s.{ts} < t.{ts}
+            """))
+            staged_row = ", ".join(f"s.{quote_ident(conn, c)}" for c in batch.columns)
+            target_row = ", ".join(f"t.{quote_ident(conn, c)}" for c in batch.columns)
+            conflict = conn.execute(text(f"""
+                SELECT EXISTS (
+                    SELECT 1 FROM {staging} s JOIN {target} t ON s.{pk} = t.{pk}
+                    WHERE s.{ts} = t.{ts}
+                      AND ROW({staged_row}) IS DISTINCT FROM ROW({target_row})
                 )
-            )
-            deleted_count = del_res.rowcount
-            if deleted_count > 0:
-                logger.info(f"  → Đã cập nhật/thay thế {deleted_count:,} dòng cũ trong cửa sổ Lookback.")
-
-            # Chèn toàn bộ dữ liệu mới từ Staging vào bảng RAW
-            conn.execute(
-                text(
-                    f"""
-                    INSERT INTO {RAW_SCHEMA}.{table_name}
-                    SELECT * FROM {RAW_SCHEMA}.{stg_table}
-                    """
-                )
-            )
-            logger.info(f"  → Nạp thành công {len(df):,} dòng vào {RAW_SCHEMA}.{table_name} (Physical Idempotent)")
-    finally:
-        # Xóa ngay bảng Staging để giải phóng triệt để dung lượng trên Neon
-        with engine.begin() as conn:
-            conn.execute(text(f"DROP TABLE IF EXISTS {RAW_SCHEMA}.{stg_table}"))
+            """)).scalar()
+            if conflict:
+                raise ValueError("Raw và batch có cùng ID/watermark nhưng payload khác nhau")
+            conn.execute(text(f"DELETE FROM {target} t USING {staging} s WHERE t.{pk} = s.{pk}"))
+            conn.execute(text(f"INSERT INTO {target} ({columns}) SELECT {columns} FROM {staging}"))
+            conn.execute(text(f"DROP TABLE {staging}"))
+    logger.info("Commit batch %s: %s ID đầu vào", table_name, len(batch))
 
 
-# Luồng thực thi chính (Main Pipeline)
-def run_pipeline():
-    """
-    Điều phối toàn bộ luồng Ingestion (ClickHouse → PostgreSQL):
-    Bước 1: Khởi tạo database và schema 'raw'.
-    Bước 2: Kết nối ClickHouse.
-    Bước 3: Nạp Full Refresh các bảng danh mục (TRUNCATE + Append).
-    Bước 4: Nạp Incremental bảng sự kiện clickstream (Lookback Window).
-    Bước 5: Thống kê số lượng dòng thực tế sau nạp.
-    """
-    start = datetime.now()
-    logger.info("=" * 60)
-    logger.info("LaplapTech Pipeline — Bắt đầu quá trình Ingestion")
-    logger.info("=" * 60)
-
-    # 1. Kiểm tra & đảm bảo Database và Schema đã sẵn sàng
+def run_pipeline(*, start_epoch: float | None = None, end_epoch: float | None = None):
+    validate_range(start_epoch, end_epoch)
+    started = datetime.now(timezone.utc)
     ensure_database_exists()
     engine = get_postgres_engine()
-    ensure_schema_exists(engine)
-
-    # 2. Khởi tạo kết nối ClickHouse
-    ch_client = get_clickhouse_client()
-    logger.info(f"Đã kết nối thành công tới ClickHouse: {os.getenv('CLICKHOUSE_HOST')}")
-
-    # 3. Nạp các bảng Full Refresh (Dimension tables)
-    for table_name in FULL_REFRESH_TABLES:
-        try:
-            df = extract_full_table(ch_client, table_name)
-            load_to_postgres(df, table_name, engine, truncate_first=True)
-        except Exception as e:
-            logger.error(f"Lỗi khi xử lý bảng {table_name}: {e}")
-            raise
-
-    # 4. Nạp bảng Incremental (Fact tables — Áp dụng Staging Upsert chống duplicate RAW)
-    for table_name, ts_col in INCREMENTAL_TABLES.items():
-        try:
-            df = extract_incremental(ch_client, table_name, ts_col, engine)
-            load_incremental_to_postgres(df, table_name, engine, primary_key="id")
-        except Exception as e:
-            logger.error(f"Lỗi khi xử lý bảng {table_name}: {e}")
-            raise
-
-    # 5. Tổng kết thời gian chạy & đếm số lượng dòng trong kho
-    elapsed = datetime.now() - start
-    logger.info("=" * 60)
-    logger.info(f"Ingestion hoàn tất thành công trong {elapsed}")
-
-    with engine.connect() as conn:
-        for table in FULL_REFRESH_TABLES + list(INCREMENTAL_TABLES.keys()):
+    ch_client = None
+    try:
+        ensure_schema_exists(engine)
+        ch_client = get_clickhouse_client()
+        for table_name in FULL_REFRESH_TABLES:
+            frame = extract_full_table(ch_client, table_name)
+            load_to_postgres(frame, table_name, engine, truncate_first=True)
+        for table_name, timestamp_col in INCREMENTAL_TABLES.items():
+            frame = extract_incremental(
+                ch_client, table_name, timestamp_col, engine,
+                start_epoch=start_epoch, end_epoch=end_epoch,
+            )
+            load_incremental_to_postgres(frame, table_name, engine)
+        with engine.connect() as conn:
+            for table in FULL_REFRESH_TABLES + list(INCREMENTAL_TABLES):
+                if inspect(conn).has_table(table, schema=RAW_SCHEMA):
+                    count = conn.execute(text(f"SELECT COUNT(*) FROM {raw_relation(conn, table)}")).scalar()
+                    logger.info("%s: %s dòng", table, count)
+        logger.info("Ingestion hoàn tất trong %s", datetime.now(timezone.utc) - started)
+    finally:
+        if ch_client is not None:
             try:
-                result = conn.execute(
-                    text(f"SELECT COUNT(*) FROM {RAW_SCHEMA}.{table}")
-                )
-                count = result.fetchone()[0]
-                logger.info(f"  {table}: {count:,} dòng")
+                ch_client.close()
             except Exception:
-                logger.info(f"  {table}: (không tìm thấy bảng)")
+                logger.warning("Không đóng được ClickHouse client")
+        engine.dispose()
 
-    logger.info("=" * 60)
-    engine.dispose()
+
+def parse_epoch(value: str) -> float:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("thiếu timezone")
+        return parsed.timestamp()
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "Dùng ISO-8601 có timezone, ví dụ 2026-10-01T00:00:00+07:00"
+        ) from exc
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--start", type=parse_epoch, help="Đầu khoảng backfill (bao gồm)")
+    parser.add_argument("--end", type=parse_epoch, help="Cuối khoảng backfill (không bao gồm)")
+    args = parser.parse_args()
+    try:
+        run_pipeline(start_epoch=args.start, end_epoch=args.end)
+    except Exception as exc:
+        logger.error("Pipeline thất bại: %s", exc)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    try:
-        run_pipeline()
-    except Exception as e:
-        logger.error(f"Pipeline thất bại: {e}")
-        sys.exit(1)
+    sys.exit(main())

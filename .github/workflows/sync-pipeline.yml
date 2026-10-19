@@ -2,13 +2,20 @@ name: "LaplapTech Pipeline — Sync & Transform"
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   schedule:
     # 01:15 UTC = 08:15 Vietnam time (Tránh nghẽn mạng đầu giờ)
     - cron: "15 1 * * *"
     # 09:45 UTC = 16:45 Vietnam time
     - cron: "45 9 * * *"
   workflow_dispatch:
+
+concurrency:
+  group: laplaptech-production-warehouse
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 env:
   CLICKHOUSE_HOST: ${{ secrets.CLICKHOUSE_HOST }}
@@ -21,9 +28,13 @@ env:
   POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
   POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
   POSTGRES_DATABASE: ${{ secrets.POSTGRES_DATABASE }}
+  POSTGRES_SSLMODE: require
+  POSTGRES_CREATE_DATABASE: "false"
+  INGESTION_LOOKBACK_SECONDS: "7200"
 
 jobs:
   sync-and-transform:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -43,12 +54,22 @@ jobs:
       - name: Run ingestion (ClickHouse → PostgreSQL)
         run: python ingestion/clickhouse_to_postgres.py
 
-      - name: Run dbt build
+      - name: Check source freshness
         working-directory: dbt
-        run: |
-          dbt deps
-          dbt build --profiles-dir .
+        run: dbt source freshness --profiles-dir .
 
-      - name: Run dbt test
+      - name: Build models and run tests
         working-directory: dbt
-        run: dbt test --profiles-dir .
+        run: dbt build --profiles-dir .
+
+      - name: Save dbt artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dbt/target/manifest.json
+            dbt/target/run_results.json
+            dbt/target/sources.json
+          if-no-files-found: warn
+          retention-days: 14

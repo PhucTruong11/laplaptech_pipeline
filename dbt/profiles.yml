@@ -8,5 +8,6 @@ laplaptech_pipeline:
       user: "{{ env_var('POSTGRES_USER', 'postgres') }}"
       password: "{{ env_var('POSTGRES_PASSWORD', 'default_password') }}"
       dbname: "{{ env_var('POSTGRES_DATABASE', 'laplaptech_pipeline') }}"
+      sslmode: "{{ env_var('POSTGRES_SSLMODE', 'prefer') }}"
       schema: public
       threads: 4
