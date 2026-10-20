@@ -1,6 +1,6 @@
 # Data flow hiện tại của LaplapTech
 
-Cập nhật ngày 19/10/2026, đối chiếu source trong repository. Đã kiểm chứng end-to-end bằng nguồn ClickHouse thật trên PostgreSQL dev local; chưa deploy các thay đổi lên Neon. Xem [Gold upgrade](../guides/gold_upgrade.md) và [report](../validation/dev_run_2026-10-19.json). Airflow nằm ở phần kế hoạch, chưa thay GitHub Actions.
+Cập nhật ngày 19/10/2026, đối chiếu source trong repository. Chủ project xác nhận warehouse đang chạy trên Neon. Báo cáo end-to-end đã lưu được thu bằng nguồn ClickHouse thật trên PostgreSQL dev local. Xem [Gold upgrade](../guides/gold_upgrade.md) và [report](../validation/dev_run_2026-10-19.json). Airflow có [kế hoạch tích hợp dùng chung](../guides/airflow_setup.md) cho lab dev riêng; Neon và sync Actions giữ nguyên. [Docker full cho cộng đồng](../guides/docker_distribution_plan.md) là chặng cuối, chưa triển khai.
 
 ## 1. Các thành phần chạy ở đâu?
 
@@ -201,23 +201,45 @@ flowchart LR
 
 Validate còn compile Python trước khi chạy tests. Không cần credential Neon/ClickHouse. Mỗi integration test tạo schema UUID và dọn đúng schema đó trong database local test.
 
-Kết quả đã ghi nhận ngày 19/10/2026: 28/28 Python test pass; 31 model build thành công và 47 data test pass trên fixture lẫn nguồn thật 784.455 event trong dev local. Có 6 source và 1 exposure; 47 tests gồm 41 generic và 6 singular. Freshness là lệnh riêng; exposure không tính là test. Chưa deploy hoặc chạy build mới trên Neon. Bộ 85 dependency khóa đã cài sạch trên Windows và Linux.
+Kết quả đã ghi nhận ngày 19/10/2026: 28/28 Python test pass; 31 model build thành công và 47 data test pass trên fixture lẫn nguồn thật 784.455 event trong dev local. Có 6 source và 1 exposure; 47 tests gồm 41 generic và 6 singular. Freshness là lệnh riêng; exposure không tính là test. Báo cáo này ghi nhận lần kiểm chứng dev; chủ project xác nhận hiện đã chạy trên Neon. Bộ 85 dependency khóa đã cài sạch trên Windows và Linux.
 
-## 9. Airflow Docker: hướng học tiếp, chưa triển khai
+## 9. Luồng roadmap — cập nhật 20/10/2026
+
+### B — Airflow Docker chung cho lab cá nhân, làm trước
 
 ```mermaid
 %%{init: {"flowchart": {"htmlLabels": false}}}%%
-flowchart LR
-    subgraph LOCAL["Laptop - Docker: kế hoạch học tiếp"]
-        AF["Airflow: ingest -> freshness -><br/>dbt build"]
-        META["PostgreSQL metadata riêng"]
-        AF -.-> META
-    end
-    SRC["ClickHouse"] --> AF
-    AF --> N["Neon warehouse giữ nguyên"]
-    GIT["GitHub Actions"] --> CI["Chỉ validate và tests sau khi<br/>chuyển lịch"]
+flowchart TD
+    AF["Platform Airflow 3.3.2 độc lập"] --> SMOKE["Smoke DAG / project tương lai"]
+    AF --> LAP["DAG LaplapTech lab"]
+    LAP --> RT["Task runtime Python 3.13"]
+    SRC["ClickHouse public"] --> RT
+    RT --> DEV["Warehouse dev riêng"]
+    GH["Actions giữ nguyên"] --> NEON["Neon đang vận hành"]
 ```
 
-Neon có thể tiếp tục giữ warehouse; chưa cần VPS nếu chấp nhận job chỉ chạy khi laptop/Docker hoạt động. Chỉ một orchestrator có lịch ghi cùng warehouse tại một thời điểm. Trước khi bật Airflow catchup phải nối data interval vào tham số backfill; script có tham số chưa đồng nghĩa DAG đã hỗ trợ backfill.
+Đã có bộ cấu hình Compose, env generator và DAG kiểm tra nền tảng cho platform Airflow 3.3.2/LocalExecutor độc lập; chủ project gửi kết quả init/service health/smoke DAG success ngày 20/10/2026. Các kết nối pipeline trong sơ đồ này chưa triển khai; có [bài thực hành kèm code mẫu](../guides/airflow_laplaptech_walkthrough.md) cho bước tích hợp. Stack NASDAQ100 cũ đã gỡ. Lab dừng khi Docker tắt; cloud tiếp tục chạy theo Actions. Không có bước tắt workflow sync hoặc chuyển lịch chính trong roadmap hiện tại.
 
-Xem [upgrade plan](upgrade_plan.md) và [backlog ưu tiên](remaining_work.md) để phân biệt code đã có với việc dự kiến.
+Nối data interval vào bounded ingestion và xử lý Silver ngoài lookback là công việc sau manual/replay, không chỉ bật catchup. Chi tiết: [Triển khai Airflow](../guides/airflow_setup.md).
+
+### C — Engineering sau Airflow
+
+Bootstrap schema, raw constraints/index, chính sách JSON lỗi/quarantine, run/stage audit, backfill/recovery và lưu artifacts có tiêu chí nghiệm thu riêng trong [backlog](remaining_work.md). Các thay đổi được test trên lab trước; không suy diễn việc có DAG xanh là mọi invariant đã được enforce.
+
+### D — Docker full cho cộng đồng, làm cuối
+
+```mermaid
+%%{init: {"flowchart": {"htmlLabels": false}}}%%
+flowchart TD
+    SRC["ClickHouse public"] --> P["Runtime ingestion local"]
+    AF["Airflow standalone LaplapTech"] -.-> P
+    AF -.-> DBT["dbt CLI local"]
+    AF -.-> META["Metadata PostgreSQL riêng"]
+    P --> W["Warehouse PostgreSQL local"]
+    DBT -.-> W
+    W --> APP["Streamlit local"]
+```
+
+Đây là bản standalone cho người clone: không mount DAG project khác, không dùng database/credential Neon của chủ repo. Mỗi người có volumes, cấu hình và kết quả riêng; nguồn thật dùng chung ClickHouse public. Bộ Compose full và quickstart được làm sau các nâng cấp engineering cốt lõi. Nó bổ sung cách chạy dự án, không thay cách host hoặc lịch Actions hiện tại. [Docker distribution plan](../guides/docker_distribution_plan.md).
+
+Sơ đồ SVG ở phần tổng quan vẫn mô tả luồng cloud đang chạy; các kết nối pipeline trong sơ đồ mục này là kế hoạch. Xem [upgrade plan](upgrade_plan.md) để theo dõi B → C → D và trạng thái triển khai.
