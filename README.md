@@ -1,161 +1,102 @@
 # LaplapTech Analytics Pipeline
 
-**Bản nâng cấp mới:** [Gold, metrics, dependency lock và dashboard](docs/guides/gold_upgrade.md). Warehouse đang chạy trên Neon theo xác nhận của chủ project; báo cáo kiểm chứng trong repo được thu trên dev local.
+Pipeline học Data Engineering: đọc ClickHouse public, nạp PostgreSQL, biến đổi bằng dbt và phục vụ phân tích qua Streamlit. Toàn bộ hệ thống chạy trên Docker local; Airflow điều phối ETL, GitHub Actions kiểm thử code bằng fixture.
 
-**Roadmap:** [Airflow dùng chung](docs/guides/airflow_setup.md) → [nâng cấp engineering](docs/architecture/remaining_work.md) → [Docker full cho cộng đồng, làm cuối](docs/guides/docker_distribution_plan.md). Neon và lịch GitHub Actions hiện tại tiếp tục giữ nguyên.
+## 1. Hệ thống hiện tại
 
-Project học và nghiên cứu Data Engineering: trích xuất ClickHouse public, nạp PostgreSQL trên Neon, biến đổi bằng dbt và phục vụ phân tích qua Streamlit.
-
-## 1. Trạng thái hiện tại
-
-| Phần | Trạng thái đối chiếu source ngày 20/10/2026 |
+| Thành phần | Cấu hình |
 |---|---|
-| Ingestion | Atomic theo từng bảng, dedup theo version, staging riêng, lookback 2 giờ và backfill CLI |
-| Transformation | 31 model: 6 Bronze views, 12 Silver views + 1 incremental table, 12 Gold tables |
-| Data quality | 47 dbt data test pass trên dev local; source freshness là lệnh riêng |
-| Kiểm chứng | 28/28 Python test pass, gồm 9 PostgreSQL integration và 2 Streamlit AppTest |
-| Điều phối hiện tại | GitHub Actions: main push, manual trên main, lịch 08:15 và 16:45 Việt Nam |
-| Airflow platform | Airflow 3.3.2/LocalExecutor: chủ project đã chạy init, services healthy và smoke DAG success; chưa tích hợp pipeline |
-| Docker full public | Chặng cuối sau engineering; Compose/bootstrap/dashboard standalone chưa được đóng gói |
-| End-to-end đã lưu bằng chứng | Nguồn thật 784.455 event → PostgreSQL dev local → 31 model/47 tests |
+| Điều phối | Airflow 3.3.2 / LocalExecutor, DAG `laplaptech_pipeline` |
+| Lịch | 08:15 và 16:45, timezone Việt Nam; một active run/writer |
+| Warehouse | PostgreSQL 16, `127.0.0.1:55434/laplaptech_pipeline_dev` |
+| Transformation | 31 dbt model: 6 Bronze views, 13 Silver relations, 12 Gold tables |
+| Data quality | Source freshness, 47 dbt data tests và đối soát raw → Gold |
+| Runtime | Python 3.13, 85 dependency được pin; task UID 10001 |
+| Dashboard | Streamlit Docker, 5 tab sử dụng đủ 12 Gold model |
+| CI | PostgreSQL fixture, full build/replay và Python/AppTest; không cần nguồn thật |
 
-Nguồn thật có 784.455 event ở lần kiểm chứng 19/10/2026; raw, Bronze và Silver event khớp nhau, Gold totals đối soát pass và replay không đổi row counts. Đây là kết quả dev local; trạng thái Neon hiện tại do chủ project xác nhận, chưa có báo cáo cloud tương ứng trong repo.
+[Báo cáo hệ thống](docs/validation/system_check_2026-10-20.json) và [regression](docs/validation/regression_check_2026-10-20.json) ghi bằng chứng theo ngày/phạm vi, không xác nhận trạng thái realtime. Danh sách report ở [validation](docs/validation/README.md).
 
 ## 2. Data flow
 
-![Data flow: ClickHouse → ingestion → Neon raw/Bronze/Silver/Gold → Streamlit](assets/data-flow.svg)
+![LaplapTech: ClickHouse → Airflow runtime → PostgreSQL → Streamlit](assets/data-flow.svg)
 
-Mũi tên liền biểu diễn dữ liệu/dependency; mũi tên đứt biểu diễn thứ tự chạy hoặc lệnh SQL. Sơ đồ dùng SVG tĩnh để chữ hiển thị đầy đủ trên GitHub; có thể mở ảnh để xem lớn.
+Airflow tạo các runtime container theo thứ tự `ingest → freshness → build → reconcile`. Python/dbt CLI chạy trong container; SQL transformation thực thi trong PostgreSQL. Metadata Airflow tách khỏi warehouse raw/Bronze/Silver/Gold. Dashboard đọc Gold và cache 300 giây.
 
-Neon lưu warehouse; runner thực thi Python và dbt CLI. Workflow không deploy Streamlit. Bronze/Silver/Gold là quan hệ trong PostgreSQL, không phải ba máy chủ riêng.
+Ingestion snapshot atomic theo từng bảng cho 5 bảng và dedup/upsert event theo ID/version với lookback 2 giờ. Freshness warn 24 giờ/error 48 giờ. Một task lỗi sẽ chặn downstream; Gold chưa có transaction publish chung cho toàn bộ model.
 
-Chi tiết transaction, failure path, backfill, lineage và CI: **[Data flow hiện tại](docs/architecture/data_flow.md)**.
+[Kiến trúc, grain, metric và failure path](docs/architecture/data_flow.md). Nguồn logo của sơ đồ được ghi tại [tool-logos.json](assets/tool-logos.json).
 
-### Thứ tự job cập nhật
+## 3. Chạy nhanh bằng Docker
 
-1. Ingestion full refresh 5 bảng bằng TRUNCATE + insert trong cùng transaction.
-2. Event extract từ MAX raw timestamp trừ 7.200 giây; dedup rồi upsert qua staging riêng.
-3. `dbt source freshness`: warn sau 24 giờ, error sau 48 giờ.
-4. `dbt build`: materialize model và chạy tests theo DAG.
-5. Upload artifact dbt đã sinh, kể cả khi bước trước lỗi.
+Cần Git, PowerShell, Docker Desktop đang chạy **Linux containers** và credential nguồn ClickHouse public. Runtime đã đóng gói nên không cần tự cài Python/dbt/PostgreSQL trên host để chạy pipeline và dashboard. Hướng dẫn hiện hỗ trợ Windows Docker Desktop; [Docker guide](docs/guides/docker.md) ghi cấu hình RAM/cổng và phạm vi kiểm chứng.
 
-Ingestion/freshness lỗi thì không chạy bước xử lý phía sau. Khi build lỗi giữa chừng, một số mart có thể đã cập nhật; chưa có publish snapshot chung cho toàn bộ warehouse.
+Nếu chưa có repo, mở PowerShell tại thư mục muốn chứa project:
 
-### Chạy lại và dữ liệu đến muộn
+```powershell
+git clone https://github.com/PhucTruong11/laplaptech_pipeline.git
+if ($LASTEXITCODE -ne 0) { throw 'Clone failed; inspect Git output before continuing.' }
+Set-Location -LiteralPath laplaptech_pipeline
+```
 
-- Dimension insert lỗi: rollback, giữ dữ liệu cũ và view.
-- Event: chọn timestamp lớn nhất theo ID; batch cũ không ghi đè version mới.
-- Cùng ID/timestamp nhưng payload khác: fail để điều tra nguồn.
-- Staging tạo/nạp/drop trong một transaction, tên có hậu tố UUID.
-- Transaction lock bảo vệ writer cùng quy tắc; workflow concurrency tránh các run cùng group chạy chồng.
-- Lookback hữu hạn không bắt được mọi bản nguồn mang timestamp quá cũ. Raw không phải lịch sử bất biến của mọi version.
-- Chunk insert tối đa 1.000 dòng, nhưng extraction vẫn giữ toàn bộ DataFrame trong RAM.
+Nếu đã clone thì chuyển vào **root repo** hiện có, không clone lồng thêm. Tiếp theo:
 
-## 3. Model và ý nghĩa phân tích
+```powershell
+if (-not (Test-Path -LiteralPath '.env')) {
+    Copy-Item -LiteralPath '.env.example' -Destination '.env'
+}
+# Mở .env bằng editor, điền CLICKHOUSE_PASSWORD và lưu trước khi chạy.
+.\scripts\Start-LocalStack.ps1
+```
 
-| Nhóm | Mart |
+Bootstrap tạo/cập nhật workspace sibling `airflow-platform`, build images và nạp cấu hình nguồn. Keys Airflow hiện có được giữ; target task luôn là PostgreSQL Docker local. Không cần tài khoản Neon.
+
+Dataset public vẫn yêu cầu login: `.env.example` đã có host/user/database, còn password phải lấy từ người duy trì dataset/repo. Nếu chưa có credential này thì chưa chạy được ingestion nguồn thật; [testing guide](docs/guides/testing.md) có lựa chọn fixture không cần login ClickHouse.
+
+1. Mở [Airflow](http://localhost:8080), đăng nhập bằng `.env` của **platform**.
+2. Unpause `laplaptech_pipeline`, Trigger với `full_refresh=true` khi cần rebuild Silver từ raw.
+3. Đợi cả bốn task success, rồi mở [dashboard](http://localhost:8501).
+
+Các lượt thường để `full_refresh=false`. Khi Docker/laptop tắt, lịch ETL và dashboard dừng; CI không chạy ETL thay Airflow. Named volumes giữ dữ liệu qua stop/recreate. Hướng dẫn đầy đủ và đăng nhập PostgreSQL: [Docker](docs/guides/docker.md).
+
+## 4. Hướng dẫn theo công việc
+
+[Mục lục tài liệu](docs/README.md) là điểm bắt đầu duy nhất.
+
+| Bạn muốn làm gì? | Hướng dẫn |
+|---|---|
+| Setup, start/stop, kết nối DB, rebuild và backup | [Docker](docs/guides/docker.md) |
+| Chạy DAG, đọc logs/Assets, hiểu retry và pool | [Airflow](docs/guides/airflow.md) |
+| Run/test/build, source freshness, exposures và dbt docs | [dbt](docs/guides/dbt.md) |
+| Điều tra ingestion, replay và backfill có kiểm soát | [Ingestion](docs/guides/ingestion.md) |
+| Kiểm tra full system, fixture và regression/CI | [Testing](docs/guides/testing.md) |
+| Hiểu Compose, Dockerfiles, mounts và volumes | [Cấu trúc hạ tầng](infra/README.md) |
+
+## 5. Model và giới hạn
+
+| Nhóm | Gold models |
 |---|---|
 | KPI và hành vi | `gold_daily_site_kpis`, `gold_behavior_funnel_daily`, `gold_user_os`, `gold_search_analytics` |
-| Quan tâm thương hiệu | `gold_brand_interest`, `gold_brand_comparison` |
-| Cấu hình và xu hướng | `gold_cpu_trend`, `gold_gpu_trend`, `gold_spec_popularity` |
-| Benchmark và pin | `gold_performance_ranking`, `gold_performance_efficiency`, `gold_battery_vs_interest` |
+| Thương hiệu | `gold_brand_interest`, `gold_brand_comparison` |
+| Cấu hình/xu hướng | `gold_cpu_trend`, `gold_gpu_trend`, `gold_spec_popularity` |
+| Benchmark/pin | `gold_performance_ranking`, `gold_performance_efficiency`, `gold_battery_vs_interest` |
 
-Daily KPI đếm event thực tế theo ngày server nhận ở giờ Việt Nam. `total_sessions` là session hoạt động trong ngày; cộng nhiều ngày thành **session-days**. Funnel dùng cùng session-day với KPI; các bước đo reach độc lập, chưa đo trình tự chuyển đổi.
+Daily KPI dùng ngày server nhận event theo giờ Việt Nam. Cộng daily sessions qua nhiều ngày là **session-days**. Funnel đo reach trong cùng session-day, chưa chứng minh thứ tự chuyển đổi. Search volume không tự chứng minh zero-result/product gap.
 
-Search volume phản ánh từ khóa được tìm; chưa đủ chứng minh zero-result/product gap. Comparison bridge chuẩn hóa tên trang/event nguồn và mở rộng device_ids; cặp brand đo co-occurrence trong session-day, không khẳng định một comparison action đồng thời.
+Raw không phải immutable history; lookback hữu hạn có thể bỏ sót bản nguồn có timestamp quá cũ. Extraction vẫn giữ DataFrame trong RAM. Bounded historical replay, quarantine và atomic Gold publication chưa được triển khai; xem giới hạn trong [data flow](docs/architecture/data_flow.md).
 
-Exposure và UI hiện đều dùng đủ 12 Gold model. Xem [grain từng model và các giới hạn](docs/architecture/data_flow.md).
+## 6. Kiểm tra hệ thống
 
-## 4. Cài đặt và chạy
-
-Ví dụ PowerShell từ root repository. CI hiện dùng Python 3.13; dependencies runtime đã khóa trong requirements.lock.txt (85 package).
+Từ root repo, với Python 3.10+ và Docker CLI:
 
 ```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-Copy-Item .env.example .env
+python scripts/verify_local_stack.py --output scratch/system-check.json
 ```
 
-Điền credential của môi trường muốn chạy vào `.env`. Với Neon, database phải có sẵn, đặt `POSTGRES_SSLMODE=require` và giữ `POSTGRES_CREATE_DATABASE=false`. Kiểm tra cả biến môi trường shell vì chúng được ưu tiên hơn `.env`.
-
-```powershell
-# Có ghi dữ liệu: chỉ chạy sau khi kiểm tra đúng database đích.
-python ingestion/clickhouse_to_postgres.py
-python -m dotenv -f .env run -- dbt source freshness --project-dir dbt --profiles-dir dbt
-python -m dotenv -f .env run -- dbt build --project-dir dbt --profiles-dir dbt
-
-streamlit run streamlit_app/app.py
-```
-
-dbt không tự đọc `.env`; ví dụ dùng CLI python-dotenv để truyền cấu hình. Không cần chạy `dbt test` toàn bộ ngay sau `dbt build`.
-
-### Backfill
-
-```powershell
-python ingestion/clickhouse_to_postgres.py --start "2026-10-01T00:00:00+07:00" --end "2026-10-02T00:00:00+07:00"
-```
-
-Khoảng `[start, end)` áp dụng cho server timestamp; dimension vẫn refresh về hiện tại. Dữ liệu raw cũ hơn cửa sổ Silver cần rebuild/backfill Silver và downstream. Full-refresh dbt không tự kéo lại ClickHouse.
-
-Chi tiết: [Hướng dẫn vận hành ingestion](docs/guides/ingestion_operations.md).
-
-### Kiểm tra offline
-
-```powershell
-python -m unittest discover -s tests -v
-python -m dotenv -f .env run -- dbt parse --project-dir dbt --profiles-dir dbt
-```
-
-Không set `TEST_DATABASE_URL` thì integration tests skip. Hướng dẫn tạo PostgreSQL test và chạy đủ ingestion tests; AppTest cần Gold fixture đã build nằm trong tài liệu vận hành. `dbt parse` không chạy SQL/data tests lên warehouse. Để tái lập build/replay và đối soát: `python -m scripts.run_dev_pipeline --source fixture` với DEV_DATABASE_URL local.
-
-### CI và lịch cập nhật
-
-- [validate.yml](.github/workflows/validate.yml): PR hoặc push develop, compile Python, PostgreSQL tests, fixture end-to-end build/replay và AppTest; không cần Neon secrets.
-- [sync-pipeline.yml](.github/workflows/sync-pipeline.yml): chỉ main được ghi warehouse chính; giữ lịch hai lần/ngày và concurrency group cố định.
-- Lịch là cấu hình dự kiến, không bảo đảm job bắt đầu đúng phút. Không chạy laptop/Airflow cùng lúc với sync trên cùng warehouse.
-- Artifact hiện lưu manifest, run results và source freshness nếu có; chưa có audit table hoặc webhook thông báo riêng.
-
-## 5. Tài liệu và việc tiếp theo
-
-| Tài liệu | Nội dung |
-|---|---|
-| [Data flow](docs/architecture/data_flow.md) | Sơ đồ triển khai hiện tại, control/data flow, transaction, grain và CI |
-| [Việc còn lại](docs/architecture/remaining_work.md) | Backlog có ưu tiên và tiêu chí nghiệm thu |
-| [Upgrade plan](docs/architecture/upgrade_plan.md) | Quyết định kiến trúc và thứ tự Airflow chung → engineering → Docker full |
-| [Ingestion operations](docs/guides/ingestion_operations.md) | Cấu hình Neon, lệnh chạy, backfill và tests |
-| [Gold upgrade](docs/guides/gold_upgrade.md) | Metric contract, migration Gold, dependency lock và dev E2E |
-| [Triển khai Airflow](docs/guides/airflow_setup.md) | Dựng platform từ `infra/airflow-platform`, chạy DAG kiểm tra nền tảng; sau đó nối runtime/warehouse dev LaplapTech |
-| [Tự viết DAG LaplapTech](docs/guides/airflow_laplaptech_walkthrough.md) | Code mẫu và giải thích: runtime, warehouse dev, provider/Compose, preflight, ba task và đối soát |
-| [Docker distribution plan](docs/guides/docker_distribution_plan.md) | Chặng cuối: người clone chạy nguồn public → warehouse local → dashboard/Airflow riêng |
-| [System design guide](SYSTEM_DESIGN_GUIDE.md) | Các quyết định thiết kế và bài học từ project |
-
-Dashboard, timezone/metric, lock và end-to-end dev đã hoàn thành. Tiếp theo dựng workspace `airflow-platform` độc lập bằng [bộ cấu hình Airflow](infra/airflow-platform), nghiệm thu DAG kiểm tra nền tảng rồi tích hợp LaplapTech trên warehouse dev riêng; sau đó làm bootstrap/constraint/quarantine và audit/backfill/recovery. Docker full cho người clone là chặng cuối: dùng ClickHouse public, PostgreSQL local, Airflow và Streamlit riêng. Bản cloud tiếp tục chạy Neon + Actions. Bộ cấu hình Airflow hiện chỉ khởi tạo Airflow, chưa phải Docker quickstart của toàn pipeline.
-
-![Dashboard dev trên dữ liệu ClickHouse thật](assets/dashboard_preview.png)
-
-## 6. Cấu trúc repository
-
-```text
-.github/workflows/         # validate CI và sync warehouse
-ingestion/                 # extraction, full refresh, event upsert, CLI backfill
-dbt/models/bronze/         # 6 pass-through views
-dbt/models/silver/         # 12 views + incremental event table
-dbt/models/gold/           # 12 mart tables
-dbt/models/model_tests.yml # generic model tests
-dbt/models/sources.yml     # source tests và freshness
-dbt/tests/                 # 6 singular tests
-tests/                    # ingestion, PostgreSQL integration và dashboard AppTest
-scripts/                  # lock generator, fixture và dev E2E runner
-streamlit_app/app.py       # giao diện phân tích
-docs/architecture/         # data flow, backlog và quyết định kiến trúc
-docs/guides/               # vận hành ingestion và migration Gold
-assets/                    # SVG data flow và screenshot dashboard
-```
+Mặc định không trigger ETL. Thêm `--run-pipeline` để chạy một lượt ingestion/freshness/build/reconcile thật và xác nhận artifacts của đúng run. Fixture/reset chỉ dùng database `laplaptech_pipeline_test`; runner từ chối warehouse active trước khi kết nối hoặc ghi. Xem [testing](docs/guides/testing.md).
 
 ## Dataset attribution
 
-Dataset contributed by **Nguyễn Ngọc Duy Luân (Duy Luân Dễ Thương)** to the
-[Xóm Data community](https://www.facebook.com/groups/xomdata). Used for educational analytics and portfolio development.
+Dataset contributed by **Nguyễn Ngọc Duy Luân (Duy Luân Dễ Thương)** to the [Xóm Data community](https://www.facebook.com/groups/xomdata). Used for educational analytics and portfolio development.
 
 License: [MIT](LICENSE).

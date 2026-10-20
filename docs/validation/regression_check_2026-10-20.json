@@ -1,0 +1,71 @@
+{
+  "validated_at_utc": "2026-10-20T12:44:57.765381+00:00",
+  "status": "success",
+  "scope": "isolated PostgreSQL fixture/full dbt build/replay and Python regression",
+  "database": "laplaptech_pipeline_test",
+  "isolated_test_container": "laplaptech-system-test-20261020",
+  "test_container_removed_after_validation": true,
+  "python_tests": {
+    "total": 43,
+    "passed": 43,
+    "skipped": 0,
+    "duration_seconds": 28.595
+  },
+  "fixture": {
+    "source": "fixture",
+    "database": "laplaptech_pipeline_test",
+    "stages": [
+      {
+        "command": "source freshness",
+        "success": true
+      },
+      {
+        "command": "build --full-refresh",
+        "success": true
+      },
+      {
+        "command": "build",
+        "success": true
+      }
+    ],
+    "model_count": 31,
+    "data_test_count": 47,
+    "test_pass_count": 47,
+    "fixture_boundary_checks_pass": true,
+    "replay_row_counts_unchanged": true,
+    "versions": {
+      "dbt-core": "1.12.3",
+      "dbt-postgres": "1.11.0",
+      "pandas": "3.0.5",
+      "streamlit": "1.62.0"
+    }
+  },
+  "maintenance": {
+    "bootstrap_ran_on_existing_stack": true,
+    "prior_unpaused_dag_restored": true,
+    "one_off_scratch_targets_removed": 32,
+    "cleanup_kept_in_use": [],
+    "warehouse_and_metadata_volumes_preserved": true,
+    "backups_and_env_files_preserved": true,
+    "documentation_index_added": true,
+    "retired_guides_consolidated": true,
+    "markdown_files_checked": 21,
+    "missing_relative_links": 0,
+    "unbalanced_fences": 0,
+    "unresolved_anchors": 0,
+    "operational_readme_points_to_source_runbook": true,
+    "bootstrap_final_five_tests_pass": true
+  },
+  "new_regressions_covered": [
+    "Fixture/reset cannot target active Airflow warehouse",
+    "Dev URL connection query overrides rejected",
+    "Bootstrap pauses project DAG before mutable image/config changes",
+    "Active run/orphan container blocks refresh before mutations",
+    "Partial bootstrap failure leaves project paused; success restores prior state"
+  ],
+  "commands": [
+    "python -m scripts.run_dev_pipeline --source fixture",
+    "python -m unittest discover -s tests -v"
+  ],
+  "detailed_logs": "scratch/system-fixture-recheck.log and scratch/system-regression-recheck.log (ignored)"
+}
