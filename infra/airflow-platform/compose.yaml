@@ -1,0 +1,105 @@
+# Shared Airflow infrastructure. See docs/guides/airflow_setup.md in the repository.
+name: airflow-platform
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:3.3.2-python3.13
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-environment
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${METADATA_PASSWORD:?Run Initialize-LocalEnv.ps1 first}@metadata:5432/airflow_meta
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:?Run Initialize-LocalEnv.ps1 first}
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW_API_SECRET_KEY:?Run Initialize-LocalEnv.ps1 first}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:?Run Initialize-LocalEnv.ps1 first}
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Ho_Chi_Minh
+    AIRFLOW__CORE__PARALLELISM: "2"
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "2"
+  volumes:
+    - ./dags:/opt/airflow/dags:ro
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    metadata:
+      condition: service_healthy
+    airflow-init:
+      condition: service_completed_successfully
+  restart: unless-stopped
+
+services:
+  metadata:
+    # Tracks PostgreSQL 16 patch updates; release distribution will pin a digest.
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_DB: airflow_meta
+      POSTGRES_PASSWORD: ${METADATA_PASSWORD:?Run Initialize-LocalEnv.ps1 first}
+    volumes:
+      - airflow-metadata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow_meta"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    user: "0:0"
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -euo pipefail
+        mkdir -p /opt/airflow/logs
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
+        /entrypoint airflow version
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
+    environment:
+      <<: *airflow-environment
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:?Run Initialize-LocalEnv.ps1 first}
+    depends_on:
+      metadata:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-api-server:
+    <<: *airflow-common
+    command: api-server
+    ports:
+      - "127.0.0.1:${AIRFLOW_UI_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+volumes:
+  airflow-metadata:
+  airflow-logs:

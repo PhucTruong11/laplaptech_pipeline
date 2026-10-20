@@ -115,4 +115,6 @@ Screenshot dữ liệu thật trên dev: [dashboard preview](../../assets/dashbo
 
 ## 7. Phần chưa làm
 
-Chưa triển khai Airflow, audit table/job heartbeat, quarantine JSON lỗi, raw ID constraint migration hoặc publish Gold atomically theo run. Chưa deploy đổi tên/logic lên Neon. Dữ liệu danh mục hiện tại vẫn được join vào lịch sử event; chưa có SCD snapshot lịch sử.
+Chưa triển khai Airflow, audit table/job heartbeat, quarantine JSON lỗi, raw ID constraint migration hoặc publish Gold atomically theo run. Báo cáo trong hướng dẫn này thuộc lần kiểm chứng dev; chủ project xác nhận đã chạy trên Neon. Dữ liệu danh mục hiện tại vẫn được join vào lịch sử event; chưa có SCD snapshot lịch sử.
+
+Kế hoạch sau Gold upgrade: [Airflow dùng chung](airflow_setup.md) → [engineering](../architecture/remaining_work.md) → [Docker full public ở chặng cuối](docker_distribution_plan.md). Neon và lịch Actions hiện tại được giữ nguyên.

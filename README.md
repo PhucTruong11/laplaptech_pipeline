@@ -1,22 +1,25 @@
 # LaplapTech Analytics Pipeline
 
-**Bản nâng cấp mới:** [Gold, metrics, dependency lock và dashboard](docs/guides/gold_upgrade.md). Đã kiểm chứng nguồn ClickHouse thật trên dev local, không ghi Neon.
+**Bản nâng cấp mới:** [Gold, metrics, dependency lock và dashboard](docs/guides/gold_upgrade.md). Warehouse đang chạy trên Neon theo xác nhận của chủ project; báo cáo kiểm chứng trong repo được thu trên dev local.
 
-Project học và nghiên cứu Data Engineering: trích xuất ClickHouse, nạp PostgreSQL trên Neon, biến đổi bằng dbt và phục vụ phân tích qua Streamlit.
+**Roadmap:** [Airflow dùng chung](docs/guides/airflow_setup.md) → [nâng cấp engineering](docs/architecture/remaining_work.md) → [Docker full cho cộng đồng, làm cuối](docs/guides/docker_distribution_plan.md). Neon và lịch GitHub Actions hiện tại tiếp tục giữ nguyên.
+
+Project học và nghiên cứu Data Engineering: trích xuất ClickHouse public, nạp PostgreSQL trên Neon, biến đổi bằng dbt và phục vụ phân tích qua Streamlit.
 
 ## 1. Trạng thái hiện tại
 
-| Phần | Trạng thái đối chiếu source ngày 19/10/2026 |
+| Phần | Trạng thái đối chiếu source ngày 20/10/2026 |
 |---|---|
 | Ingestion | Atomic theo từng bảng, dedup theo version, staging riêng, lookback 2 giờ và backfill CLI |
 | Transformation | 31 model: 6 Bronze views, 12 Silver views + 1 incremental table, 12 Gold tables |
 | Data quality | 47 dbt data test pass trên dev local; source freshness là lệnh riêng |
 | Kiểm chứng | 28/28 Python test pass, gồm 9 PostgreSQL integration và 2 Streamlit AppTest |
 | Điều phối hiện tại | GitHub Actions: main push, manual trên main, lịch 08:15 và 16:45 Việt Nam |
-| Airflow Docker | Hướng học tiếp; chưa triển khai |
-| End-to-end sau đợt sửa | Đã chạy nguồn thật 784.455 event → PostgreSQL dev local → 31 model/47 tests; Neon chưa deploy |
+| Airflow platform | Airflow 3.3.2/LocalExecutor: chủ project đã chạy init, services healthy và smoke DAG success; chưa tích hợp pipeline |
+| Docker full public | Chặng cuối sau engineering; Compose/bootstrap/dashboard standalone chưa được đóng gói |
+| End-to-end đã lưu bằng chứng | Nguồn thật 784.455 event → PostgreSQL dev local → 31 model/47 tests |
 
-Nguồn thật có 784.455 event ở lần kiểm chứng 19/10/2026; raw, Bronze và Silver event khớp nhau, Gold totals đối soát pass và replay không đổi row counts. Đây là kết quả dev local, không phải deploy Neon.
+Nguồn thật có 784.455 event ở lần kiểm chứng 19/10/2026; raw, Bronze và Silver event khớp nhau, Gold totals đối soát pass và replay không đổi row counts. Đây là kết quả dev local; trạng thái Neon hiện tại do chủ project xác nhận, chưa có báo cáo cloud tương ứng trong repo.
 
 ## 2. Data flow
 
@@ -119,12 +122,15 @@ Không set `TEST_DATABASE_URL` thì integration tests skip. Hướng dẫn tạo
 |---|---|
 | [Data flow](docs/architecture/data_flow.md) | Sơ đồ triển khai hiện tại, control/data flow, transaction, grain và CI |
 | [Việc còn lại](docs/architecture/remaining_work.md) | Backlog có ưu tiên và tiêu chí nghiệm thu |
-| [Upgrade plan](docs/architecture/upgrade_plan.md) | Quyết định kiến trúc, lịch sử thay đổi và hướng Airflow |
+| [Upgrade plan](docs/architecture/upgrade_plan.md) | Quyết định kiến trúc và thứ tự Airflow chung → engineering → Docker full |
 | [Ingestion operations](docs/guides/ingestion_operations.md) | Cấu hình Neon, lệnh chạy, backfill và tests |
 | [Gold upgrade](docs/guides/gold_upgrade.md) | Metric contract, migration Gold, dependency lock và dev E2E |
+| [Triển khai Airflow](docs/guides/airflow_setup.md) | Dựng platform từ `infra/airflow-platform`, chạy DAG kiểm tra nền tảng; sau đó nối runtime/warehouse dev LaplapTech |
+| [Tự viết DAG LaplapTech](docs/guides/airflow_laplaptech_walkthrough.md) | Code mẫu và giải thích: runtime, warehouse dev, provider/Compose, preflight, ba task và đối soát |
+| [Docker distribution plan](docs/guides/docker_distribution_plan.md) | Chặng cuối: người clone chạy nguồn public → warehouse local → dashboard/Airflow riêng |
 | [System design guide](SYSTEM_DESIGN_GUIDE.md) | Các quyết định thiết kế và bài học từ project |
 
-Dashboard, timezone/metric, lock và end-to-end dev đã hoàn thành; xem báo cáo và hướng dẫn migration trong tài liệu Gold upgrade. Các việc tiếp theo gồm audit/quarantine, constraint/index và Airflow lab. Với mục tiêu học, Airflow Docker local là bước sau phù hợp; có thể giữ Neon, chưa bắt buộc thuê VPS.
+Dashboard, timezone/metric, lock và end-to-end dev đã hoàn thành. Tiếp theo dựng workspace `airflow-platform` độc lập bằng [bộ cấu hình Airflow](infra/airflow-platform), nghiệm thu DAG kiểm tra nền tảng rồi tích hợp LaplapTech trên warehouse dev riêng; sau đó làm bootstrap/constraint/quarantine và audit/backfill/recovery. Docker full cho người clone là chặng cuối: dùng ClickHouse public, PostgreSQL local, Airflow và Streamlit riêng. Bản cloud tiếp tục chạy Neon + Actions. Bộ cấu hình Airflow hiện chỉ khởi tạo Airflow, chưa phải Docker quickstart của toàn pipeline.
 
 ![Dashboard dev trên dữ liệu ClickHouse thật](assets/dashboard_preview.png)
 

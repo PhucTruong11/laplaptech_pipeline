@@ -2,7 +2,7 @@
 
 Ingestion đã triển khai transaction theo từng bảng, dedup theo watermark mới nhất,
 staging riêng trong transaction, transaction advisory lock cho writer cùng bảng,
-và backfill event theo khoảng thời gian. Chưa đổi sang Airflow.
+và backfill event theo khoảng thời gian. Neon + sync Actions giữ nguyên; [Airflow dùng chung](airflow_setup.md) là lab trên warehouse dev riêng, [Docker full public](docker_distribution_plan.md) làm ở chặng cuối.
 
 Luồng dữ liệu và failure path hiện tại: [data flow](../architecture/data_flow.md).
 Các việc chưa sửa: [remaining work](../architecture/remaining_work.md).
@@ -86,7 +86,7 @@ watermark dạng numeric/Decimal, backfill và daily KPI sát nửa đêm Việt
 
 - Giữ mô hình daily KPI mới theo session-day và bổ sung chú thích grain + hai singular tests đối soát event/rate.
 - Giữ trigger main và concurrency của workflow sync; bổ sung guard cho manual dispatch, freshness và lưu artifacts.
-- Workflow validate dùng `requirements.txt` hiện có, không tham chiếu `requirements.lock.txt` chưa tồn tại; chạy test với PostgreSQL service riêng.
+- Workflow validate cài `requirements.txt` trỏ tới `requirements.lock.txt`, dùng lock làm cache key; chạy test với PostgreSQL service riêng.
 - Raw và Silver có thêm test khóa event. Các test dữ liệu chạy thật trong `dbt build`; parse không xác nhận dữ liệu trên Neon.
 - Quyết định kiến trúc và lịch sử sửa nằm ở [upgrade plan](../architecture/upgrade_plan.md); trạng thái hiện tại được tách khỏi ghi chép Sprint 1–3.
 
