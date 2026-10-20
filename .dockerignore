@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+venv
+.venv
+scratch
+logs
+**/__pycache__
+dbt/target
+dbt/logs
+dbt/dbt_packages
+dbt/.user.yml
+.streamlit
+streamlit_app/.streamlit

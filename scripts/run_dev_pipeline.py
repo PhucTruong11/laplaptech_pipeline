@@ -1,7 +1,9 @@
-"""Run real ingestion + freshness + dbt builds against a LOCAL dev database only.
+"""Run ingestion + dbt validation against an isolated LOCAL test/dev-live DB.
 
 python -m scripts.run_dev_pipeline --source fixture|clickhouse
-Set DEV_DATABASE_URL; fixture is the default and never reads remote credentials.
+Set DEV_DATABASE_URL; fixture/reset require laplaptech_pipeline_test.
+ClickHouse validation also permits laplaptech_pipeline_dev_live. The active
+Airflow warehouse laplaptech_pipeline_dev is never a target of this runner.
 """
 import argparse
 from collections import Counter, defaultdict
@@ -14,24 +16,54 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import ArgumentError
 
 from ingestion import clickhouse_to_postgres as ingestion
 from scripts.dev_fixtures import FixtureClickHouse
+
+
+def validated_dev_url(value: str | None, *, source: str, reset_fixture: bool = False) -> URL:
+    """Reject unsafe validation targets before connecting, writing, or resetting."""
+    if not value:
+        raise RuntimeError('Set DEV_DATABASE_URL to an isolated LOCAL test/dev-live database')
+    try:
+        url = make_url(value)
+    except (ArgumentError, ValueError):
+        # A malformed URL can contain a password; do not include it in the error.
+        raise RuntimeError('DEV_DATABASE_URL must be a valid explicit PostgreSQL URL') from None
+    if url.drivername not in {'postgresql', 'postgresql+psycopg2'}:
+        raise RuntimeError('DEV_DATABASE_URL must use PostgreSQL with the psycopg2 driver')
+    if url.host not in {'localhost', '127.0.0.1'}:
+        raise RuntimeError('DEV_DATABASE_URL host must be localhost or 127.0.0.1')
+    if url.query:
+        # psycopg2 query fields such as host/service/dbname can override URL fields.
+        raise RuntimeError('DEV_DATABASE_URL must not contain connection query overrides')
+    if not url.username or not url.password:
+        raise RuntimeError('DEV_DATABASE_URL requires an explicit username and password')
+    if url.port is not None and not 1 <= url.port <= 65535:
+        raise RuntimeError('DEV_DATABASE_URL port must be between 1 and 65535')
+    if url.database == 'laplaptech_pipeline_dev':
+        raise RuntimeError('The active Airflow warehouse laplaptech_pipeline_dev is not a validation target')
+    if source not in {'fixture', 'clickhouse'}:
+        raise RuntimeError('Unsupported validation source')
+    if reset_fixture and (source != 'fixture' or url.database != 'laplaptech_pipeline_test'):
+        raise RuntimeError('--reset-fixture requires fixture source and laplaptech_pipeline_test')
+    if source == 'fixture' and url.database != 'laplaptech_pipeline_test':
+        raise RuntimeError('Fixture validation requires laplaptech_pipeline_test')
+    if source == 'clickhouse' and url.database not in {'laplaptech_pipeline_test', 'laplaptech_pipeline_dev_live'}:
+        raise RuntimeError('ClickHouse validation requires laplaptech_pipeline_test or laplaptech_pipeline_dev_live')
+    return url
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', choices=['fixture', 'clickhouse'], default='fixture')
     parser.add_argument('--allow-stale-source', action='store_true', help='Dev historical data only; record freshness failure and continue build')
-    parser.add_argument('--reset-fixture', action='store_true', help='Reset only the named local fixture schemas before loading a changed fixture contract')
+    parser.add_argument('--reset-fixture', action='store_true', help='Reset fixture schemas only in laplaptech_pipeline_test')
     args = parser.parse_args()
-    url = make_url(os.environ['DEV_DATABASE_URL'])
-    if url.host not in {'localhost', '127.0.0.1'} or url.database not in {'laplaptech_pipeline_dev', 'laplaptech_pipeline_test', 'laplaptech_pipeline_dev_live'}:
-        raise RuntimeError('DEV_DATABASE_URL must point to an explicitly named LOCAL dev/test database')
+    url = validated_dev_url(os.environ.get('DEV_DATABASE_URL'), source=args.source, reset_fixture=args.reset_fixture)
     if args.reset_fixture:
-        if args.source != 'fixture' or url.database == 'laplaptech_pipeline_dev_live':
-            raise RuntimeError('Reset is restricted to the LOCAL fixture database, never dev-live')
         engine = create_engine(url)
         try:
             with engine.begin() as conn:

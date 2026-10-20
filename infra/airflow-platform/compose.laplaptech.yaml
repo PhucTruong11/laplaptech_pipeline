@@ -1,0 +1,82 @@
+x-platform-image: &platform-image
+  image: airflow-platform:3.3.2-docker4.6.1-py3.13
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+services:
+  airflow-init:
+    <<: *platform-image
+  airflow-api-server:
+    <<: *platform-image
+    volumes:
+      - ${LAPLAPTECH_PROJECT_DIR:?Set LAPLAPTECH_PROJECT_DIR in platform .env}/infra/laplaptech/dags:/opt/airflow/dags/laplaptech:ro
+  airflow-dag-processor:
+    <<: *platform-image
+    volumes:
+      - ${LAPLAPTECH_PROJECT_DIR:?Set LAPLAPTECH_PROJECT_DIR in platform .env}/infra/laplaptech/dags:/opt/airflow/dags/laplaptech:ro
+  airflow-scheduler:
+    <<: *platform-image
+    group_add:
+      - "${DOCKER_SOCKET_GID:-0}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${LAPLAPTECH_PROJECT_DIR:?Set LAPLAPTECH_PROJECT_DIR in platform .env}/infra/laplaptech/dags:/opt/airflow/dags/laplaptech:ro
+
+  warehouse-laplaptech:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: laplaptech
+      POSTGRES_PASSWORD: laplaptech_lab_only
+      POSTGRES_DB: laplaptech_pipeline_dev
+    volumes:
+      - laplaptech-warehouse:/var/lib/postgresql/data
+    networks:
+      - laplaptech-lab
+    ports:
+      - "127.0.0.1:${WAREHOUSE_HOST_PORT:-55434}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U laplaptech -d laplaptech_pipeline_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  dashboard:
+    image: laplaptech-dashboard:local-v1
+    build:
+      context: ${LAPLAPTECH_PROJECT_DIR:?Set LAPLAPTECH_PROJECT_DIR in platform .env}
+      dockerfile: infra/laplaptech/dashboard.Dockerfile
+    environment:
+      POSTGRES_HOST: warehouse-laplaptech
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: laplaptech
+      POSTGRES_PASSWORD: laplaptech_lab_only
+      POSTGRES_DATABASE: laplaptech_pipeline_dev
+      POSTGRES_SSLMODE: prefer
+      GOLD_SCHEMA: public_gold
+      DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+    networks:
+      - laplaptech-lab
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-8501}:8501"
+    depends_on:
+      warehouse-laplaptech:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "streamlit_app.health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+networks:
+  laplaptech-lab:
+    name: laplaptech-lab
+    driver: bridge
+
+volumes:
+  laplaptech-warehouse:
+    name: laplaptech-lab-warehouse

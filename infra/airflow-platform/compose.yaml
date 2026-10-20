@@ -1,4 +1,4 @@
-# Shared Airflow infrastructure. See docs/guides/airflow_setup.md in the repository.
+# Shared Airflow infrastructure. See docs/guides/airflow.md in the repository.
 name: airflow-platform
 
 x-airflow-common: &airflow-common

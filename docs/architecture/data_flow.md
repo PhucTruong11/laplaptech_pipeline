@@ -1,245 +1,142 @@
-# Data flow hiện tại của LaplapTech
+# Kiến trúc và data flow
 
-Cập nhật ngày 19/10/2026, đối chiếu source trong repository. Chủ project xác nhận warehouse đang chạy trên Neon. Báo cáo end-to-end đã lưu được thu bằng nguồn ClickHouse thật trên PostgreSQL dev local. Xem [Gold upgrade](../guides/gold_upgrade.md) và [report](../validation/dev_run_2026-10-19.json). Airflow có [kế hoạch tích hợp dùng chung](../guides/airflow_setup.md) cho lab dev riêng; Neon và sync Actions giữ nguyên. [Docker full cho cộng đồng](../guides/docker_distribution_plan.md) là chặng cuối, chưa triển khai.
+Tài liệu này là nguồn giải thích kiến trúc, grain, metric và giới hạn của project. Lệnh thao tác nằm trong [Docker](../guides/docker.md), [Airflow](../guides/airflow.md), [dbt](../guides/dbt.md), [ingestion](../guides/ingestion.md) và [testing](../guides/testing.md). Bắt đầu từ [mục lục tài liệu](../README.md).
 
-## 1. Các thành phần chạy ở đâu?
+## 1. Mục tiêu và luồng tổng thể
+
+LaplapTech là project học Data Engineering với batch hai lần/ngày: đọc dữ liệu danh mục/benchmark và clickstream JSON từ ClickHouse public, nạp PostgreSQL, biến đổi bằng dbt rồi phục vụ Streamlit. Không có yêu cầu realtime được triển khai. Thiết kế tập trung vào transaction, replay, data quality và khả năng giải thích kết quả.
+
+![ClickHouse → Airflow Docker tasks → PostgreSQL local → Streamlit](../../assets/data-flow.svg)
+
+Đây là ELT: Python nạp raw, còn SQL do PostgreSQL thực thi. Airflow quyết định lịch/thứ tự/retry; dbt quyết định dependency giữa các model. Docker đóng gói môi trường thực thi và giữ dữ liệu qua named volumes. GitHub Actions chỉ chạy CI fixture, không thay scheduler local.
+
+## 2. Các thành phần và ranh giới
 
 | Thành phần | Nơi chạy/lưu | Trách nhiệm |
 |---|---|---|
-| ClickHouse | Nguồn bên ngoài | 5 bảng danh mục/benchmark và 1 bảng event |
-| Python ingestion | GitHub Actions runner hoặc máy local | Extract vào DataFrame, nạp PostgreSQL raw |
-| dbt CLI | Cùng runner/máy local | Lập DAG, gửi SQL và chạy data tests |
-| SQL transformation | PostgreSQL Neon | Thực thi view, incremental và tạo Gold tables |
-| Warehouse | Neon | `raw`, `public_bronze`, `public_silver`, `public_gold` |
-| Streamlit | Nơi người dùng khởi chạy app | Truy vấn Gold, cache kết quả 300 giây |
-| PostgreSQL test | Docker local hoặc CI service | Dữ liệu fixture và schema tạm để chạy integration tests |
+| ClickHouse public | Nguồn bên ngoài | 5 bảng snapshot và 1 bảng event |
+| Airflow API/UI | Docker, host `localhost:8080` | UI, API và execution API |
+| Scheduler + LocalExecutor | Docker | Lập lịch, chạy task process và yêu cầu Docker Engine tạo runtime container |
+| DAG processor | Docker | Import source DAG được mount read-only từ repo |
+| Python/dbt runtime | Container riêng cho mỗi stage | Ingest, freshness, build và reconcile; UID 10001, giới hạn RAM 2 GB/task |
+| Warehouse PostgreSQL 16 | `warehouse-laplaptech:5432`; host `127.0.0.1:55434` | DB `laplaptech_pipeline_dev`, raw/Bronze/Silver/Gold |
+| Metadata PostgreSQL 16 | `metadata:5432/airflow_meta`, không publish host | DAG/run/task state, user và cấu hình Airflow |
+| Streamlit | Docker, host `localhost:8501` | Đọc đủ 12 Gold model, cache query 300 giây |
+| GitHub Actions | Runner và PostgreSQL test riêng | Kiểm thử code/fixture/dbt/dashboard |
 
-Workflow hiện tại không deploy hoặc restart Streamlit. Neon lưu dữ liệu; GitHub Actions cung cấp nơi chạy job. Hai vai trò này độc lập.
+Control plane và warehouse có database/volume riêng. Config task là read-only volume; artifacts và Airflow logs ở volume riêng. Dataset không truyền qua XCom. Root `.env` dành host, `.env` platform dành Airflow, config volume dành container; thay file trên host không tự cập nhật volume.
 
-## 2. Luồng dữ liệu tổng thể
+Một platform có thể chạy nhiều project với DAG ID, runtime, config, network và pool riêng. UI/metadata dùng chung không phải tenant isolation. Người clone repo trên Docker Engine khác không thấy DAG hay volume cá nhân của chủ repo. Scheduler có Docker socket nên platform này dành cho máy local tin cậy.
 
-Mũi tên liền là dữ liệu/quan hệ phụ thuộc; mũi tên đứt là điều khiển hoặc metadata.
-
-![Data flow: ClickHouse → ingestion → Neon raw/Bronze/Silver/Gold → Streamlit](../../assets/data-flow.svg)
-
-`dbt exposure` khai báo dependency vào cả 12 Gold model cho app; đây là metadata, không di chuyển dữ liệu. Sơ đồ tổng quan dùng chung [SVG](../../assets/data-flow.svg) với README.
-
-Bronze là pass-through view, chưa phải data contract được enforce. Raw giữ snapshot danh mục và phiên bản event được chọn theo ID; raw không lưu bất biến mọi phiên bản nguồn.
-
-## 3. Control flow của job cập nhật
+## 3. Điều phối và failure path
 
 ```mermaid
-%%{init: {"flowchart": {"htmlLabels": false}}}%%
 flowchart LR
-    T["main push / manual main / 08:15 và<br/>16:45 VN"] --> Q["Concurrency group theo warehouse"]
-    Q --> I["Ingestion"]
-    I -->|"Thành công"| F["dbt source freshness"]
-    F -->|"Không có freshness error"| D["dbt build: models và tests theo<br/>DAG"]
-    I -->|"Thất bại"| STOP["Không chạy các bước xử lý phía sau"]
-    F -->|"Trễ quá 48 giờ"| STOP
-    D -->|"Model/test lỗi"| FAIL["Job fail; downstream có thể bị<br/>skip"]
-    I -.-> A["Upload artifact: always"]
-    F -.-> A
-    D -.-> A
+    A["Airflow: 08:15 / 16:45 VN"] --> I["ingest"]
+    I --> F["source freshness"]
+    F --> B["dbt build + data tests"]
+    B --> R["reconcile raw → Gold"]
+    R --> G["Validated Gold Asset"]
 ```
 
-- Lịch cấu hình UTC: `15 1 * * *` và `45 9 * * *`, tương ứng 08:15 và 16:45 Việt Nam. Đây là lịch cấu hình, không phải cam kết job luôn bắt đầu đúng phút.
-- `concurrency.group` cố định và `cancel-in-progress: false` tránh hai run trong cùng group chạy đồng thời. Không coi cơ chế này là hàng đợi giữ mọi trigger.
-- Freshness dùng MAX server timestamp của event: warn sau 24 giờ, error sau 48 giờ. Warn không chặn build theo cấu hình hiện tại.
-- `dbt build` đã chạy data tests; không chạy `dbt test` toàn bộ lần nữa ngay sau đó.
-- Upload giữ `manifest.json`, `run_results.json`, `sources.json` nếu đã sinh, retention 14 ngày. Ingestion lỗi sớm có thể chưa có artifact dbt.
-- Chưa có automatic retry cho toàn job, bảng audit theo run hoặc notification riêng ngoài cấu hình thông báo GitHub của người dùng.
+DAG [`laplaptech_pipeline.py`](../../infra/laplaptech/dags/laplaptech_pipeline.py) dùng timezone `Asia/Ho_Chi_Minh`, `catchup=False`, một active run/task và pool `laplaptech_warehouse` một slot. Khi unpause lần đầu, Airflow có thể tạo lượt mới nhất đã đến hạn. Docker/laptop tắt thì lịch và dashboard dừng; catchup không thay bounded backfill.
 
-## 4. Ingestion: transaction và phiên bản dữ liệu
+| Stage | Điều kiện đi tiếp và xử lý lỗi |
+|---|---|
+| `ingest` | Commit raw thành công; lỗi chặn downstream, retry 1 lần sau 2 phút |
+| `freshness` | MAX server-received timestamp của event: warn 24 giờ/error 48 giờ; error chặn build, không retry |
+| `build` | Materialize model và chạy data tests theo dbt DAG; lỗi có thể skip downstream, retry 1 lần |
+| `reconcile` | Đối chiếu inventory, ID/count và daily metrics; lệch làm fail run, không retry |
 
-### 4.1 Full refresh cho 5 bảng
+Raw Asset phát sau ingest success; validated Gold Asset chỉ phát sau reconcile success. Assets là metadata dữ liệu sẵn sàng, không lưu dataset và hiện không thay lịch cron. `full_refresh=true` chỉ thêm `--full-refresh` cho dbt build; scheduled run mặc định incremental Silver.
 
-Áp dụng cho `brand`, `cpu_model`, `gpu_model`, `laptop_model`, `laptop_benchmark_result`.
+Stage container tự xóa sau chạy, nhưng task log và report/dbt artifacts theo run/task/attempt còn trên volumes. Runtime [`run_airflow_stage.py`](../../scripts/run_airflow_stage.py) kiểm tra target config và database/user identity trước mỗi stage. Nếu container chưa tạo được, chưa có runtime report; đọc Airflow log để phân biệt.
 
-```mermaid
-%%{init: {"flowchart": {"htmlLabels": false}}}%%
-flowchart TD
-    E["SELECT toàn bảng từ ClickHouse"] --> V{"DataFrame có dữ liệu?"}
-    V -->|"Không"| REJECT["Fail và giữ bảng cũ"]
-    V -->|"Có"| TX["BEGIN và transaction advisory lock<br/>theo bảng"]
-    TX --> CHECK["Kiểm tra bảng tồn tại và tập tên<br/>cột"]
-    CHECK --> TR["TRUNCATE nếu đã có bảng"]
-    TR --> W["to_sql append bằng cùng Connection"]
-    W --> C["COMMIT"]
-    CHECK -->|"Schema thay đổi"| RB["ROLLBACK"]
-    W -->|"Insert lỗi"| RB
-```
+Bootstrap pause riêng DAG LaplapTech trước khi kiểm tra active runs và giữ pause suốt cập nhật image/config. Thành công khôi phục trạng thái pause cũ; lỗi cập nhật dở dang giữ paused để xử lý. Pool chỉ kiểm soát task dùng pool, không ngăn người tự chạy writer ngoài Airflow.
 
-TRUNCATE giữ định nghĩa view. Atomicity đến từ việc TRUNCATE và insert dùng cùng transaction; chỉ TRUNCATE rồi append ở hai transaction khác nhau không bảo đảm rollback dữ liệu.
+## 4. Ingestion: atomicity, version và replay
 
-`to_sql` dùng chunk tối đa 1.000 dòng và giới hạn theo số cột. Extraction vẫn giữ toàn bộ kết quả trong RAM; chunk insert không đồng nghĩa streaming extraction.
+### Năm bảng snapshot
 
-### 4.2 Event incremental
+`brand`, `cpu_model`, `gpu_model`, `laptop_model`, `laptop_benchmark_result` được extract toàn bảng. Mỗi bảng dùng cùng transaction/Connection cho advisory lock → kiểm tra tập tên cột → TRUNCATE nếu đã tồn tại → insert → COMMIT. Batch rỗng, schema đổi hoặc insert lỗi làm fail/rollback bảng đó; view phụ thuộc được giữ.
 
-Watermark: `event_received_on_server_timestamp`, dạng epoch giây. Lượt thông thường lấy `timestamp >= MAX(raw timestamp) - INGESTION_LOOKBACK_SECONDS`, mặc định 7.200 giây. Chưa có bảng hoặc chưa có watermark thì extract toàn bảng. Lỗi đọc watermark phải fail, không biến thành full extraction.
+Atomicity chỉ bao trùm từng bảng. Bảng đã commit trước một lỗi sau đó vẫn giữ dữ liệu mới; cả ingestion và dbt không phải một transaction chung. Bronze `SELECT *` là ánh xạ nguồn, chưa phải data contract; kiểm tra tên cột chưa thay thế kiểm tra type/schema evolution đầy đủ.
 
-```mermaid
-%%{init: {"flowchart": {"htmlLabels": false}}}%%
-flowchart TD
-    E["Extract event theo watermark hoặc<br/>khoảng backfill"] --> P["Kiểm tra ID, epoch và chuẩn hóa<br/>JSON object"]
-    P --> D["Chọn timestamp lớn nhất cho mỗi ID"]
-    D --> X{"Cùng ID và timestamp mới nhất<br/>nhưng payload khác?"}
-    X -->|"Có"| BAD["Fail để điều tra version nguồn"]
-    X -->|"Không"| TX["BEGIN và transaction advisory lock"]
-    TX --> EXISTS{"Đã có bảng raw?"}
-    EXISTS -->|"Chưa"| FIRST["Tạo và nạp batch đầu"]
-    EXISTS -->|"Có"| STG["Tạo staging có hậu tố UUID và nạp<br/>batch"]
-    STG --> OLD["Bỏ dòng staging cũ hơn bản đã có<br/>trong raw"]
-    OLD --> CONFLICT["Kiểm tra payload xung đột cùng ID<br/>và timestamp với raw"]
-    CONFLICT --> DEL["DELETE các ID được thay thế"]
-    DEL --> INS["INSERT theo danh sách cột tường<br/>minh"]
-    INS --> DROP["DROP staging trong cùng<br/>transaction"]
-    FIRST --> COMMIT["COMMIT"]
-    DROP --> COMMIT
-    CONFLICT -->|"Xung đột"| RB["ROLLBACK cả raw và staging"]
-    INS -->|"Lỗi"| RB
-```
+### Event incremental
 
-Xung đột cùng timestamp bị fail thay vì chọn bản ngẫu nhiên. Muốn hỗ trợ sửa payload có cùng server timestamp cần version/updated_at và quy tắc chọn bản rõ ràng.
+Watermark là `event_received_on_server_timestamp` dạng epoch giây. Lượt thường lấy `timestamp >= MAX(raw timestamp) - 7200`; chưa có bảng/watermark mới extract toàn bộ. Lỗi đọc watermark phải fail, không tự chuyển thành full extraction.
 
-Transaction lock bảo vệ các writer sử dụng cùng khóa trong code. Chưa có migration tự động thêm unique index vào raw; generic tests phát hiện duplicate không thay thế constraint vật lý. Từng bảng commit riêng; cả ingestion + dbt không phải một transaction toàn cục.
+1. Kiểm tra ID/epoch và JSON object; chọn timestamp lớn nhất của mỗi ID trong batch.
+2. Cùng ID/timestamp mới nhất nhưng payload khác thì fail để điều tra.
+3. Trong transaction: advisory lock → tạo/nạp staging UUID → loại version cũ hơn raw → kiểm tra conflict cùng version → DELETE/INSERT theo danh sách cột → DROP staging → COMMIT.
+4. Lỗi giữa transaction rollback raw và staging của bảng event. Replay cùng dữ liệu không làm tăng ID đã có; version cũ không thay version mới.
 
-## 5. dbt lineage và grain
+Raw giữ version được chọn, không lưu bất biến mọi version. Delete ở nguồn chưa được đồng bộ bằng CDC. Advisory lock chỉ bảo vệ writer dùng cùng quy tắc; dbt `unique_key`/generic tests không tự tạo unique constraint vật lý trong raw.
 
-### 5.1 Các nhánh Silver
+Extraction hiện giữ toàn bộ DataFrame trong RAM; chunk insert tối đa 1.000 dòng chỉ giảm kích thước câu INSERT, không phải streaming extraction. Đo RAM/time theo volume trước khi chọn phân trang/streaming hoặc tăng memory.
 
-```mermaid
-%%{init: {"flowchart": {"htmlLabels": false}}}%%
-flowchart LR
-    BD["Bronze brand, CPU, GPU"] --> SD["Silver brand, CPU, GPU"]
-    BL["bronze_laptop_model"] --> LAP["silver_laptop_model"]
-    SD --> LAP
-    BB["bronze_laptop_benchmark_result"] --> BEN["silver_laptop_benchmark_result"]
-    BE["bronze_user_event_tracking"] --> EVT["silver_user_event_tracking:<br/>incremental theo ID"]
-    EVT --> SF["Session activity và<br/>session-day/funnel"]
-    EVT --> CE["Comparison event-device bridge và<br/>session-device"]
-    EVT --> SORT["Comparison sort event: chưa có<br/>Gold downstream"]
-    EVT --> DT["Device traffic event"]
-    LAP --> MART["Các Gold mart join<br/>catalog/event/benchmark"]
-    BEN --> MART
-    EVT --> MART
-    SF --> MART
-    CE --> MART
-```
+## 5. Warehouse và lineage
 
-Silver event parse JSON, đổi epoch sang timestamp có timezone, lọc event_name/session_id NULL và dedup theo ID. Incremental đọc lại cửa sổ 2 giờ từ MAX timestamp của **Silver**. Đây là watermark riêng, không phải MAX raw. `unique_key='id'` của dbt không tự tạo unique constraint.
-
-`silver_comparison_sort_event` và `silver_device_traffic_event` hiện không có Gold downstream. `gold_daily_site_kpis` và funnel cùng lấy từ `silver_session_day`. Bridge `silver_comparison_event_device` mở rộng device_ids và chuẩn hóa attribution cho brand/product.
-
-### 5.2 12 Gold mart
-
-| Model | Upstream Silver | Grain và ý nghĩa hiện tại |
+| Schema | Materialization | Vai trò |
 |---|---|---|
-| `gold_daily_site_kpis` | session_day | Một ngày Việt Nam, đo active session-days và event thực tế |
-| `gold_behavior_funnel_daily` | session_funnel | Ngày Việt Nam của session-day; đếm các bước đã xuất hiện, không yêu cầu thứ tự |
-| `gold_brand_interest` | user_event_tracking, laptop_model, comparison_event_device, brand | Một brand trong catalog; detail views, distinct sessions và comparison interaction co-reach |
-| `gold_brand_comparison` | comparison_session_device, laptop_model, brand | Cặp brand ID đã canonicalize; đồng xuất hiện trong comparison interactions của session-day |
-| `gold_cpu_trend` | user_event_tracking, laptop_model | Tháng, CPU, brand; chỉ detail pageview, giữ cả nhóm ít view |
-| `gold_gpu_trend` | user_event_tracking, laptop_model | Tháng, GPU, brand; chỉ detail pageview, giữ cả nhóm ít view |
-| `gold_search_analytics` | user_event_tracking | Keyword đã lower/trim, tổng search và distinct sessions |
-| `gold_spec_popularity` | user_event_tracking, laptop_model | CPU, GPU, kích thước màn hình, dung lượng pin; chưa có RAM/storage |
-| `gold_performance_ranking` | laptop_model, laptop_benchmark_result | Laptop active join benchmark; chọn benchmark ID lớn nhất, một dòng/laptop |
-| `gold_performance_efficiency` | laptop_model, laptop_benchmark_result | Laptop active/visible join benchmark có điểm CPU; hiệu năng trên kg/Wh |
-| `gold_battery_vs_interest` | user_event_tracking, comparison_event_device, laptop_model, laptop_benchmark_result | Laptop active join benchmark đại diện, detail views và comparison interactions |
-| `gold_user_os` | session_activity | OS và device type, đếm session |
+| `raw` | 6 tables | Snapshot danh mục và event upsert |
+| `public_bronze` | 6 views | Ánh xạ nguồn 1:1 |
+| `public_silver` | 12 views + 1 incremental table | JSON/timestamp, catalog enrichment, session/day và comparison bridges |
+| `public_gold` | 12 tables | Aggregate/join phục vụ dashboard |
 
-Gold materialize thành table, rebuild theo DAG mỗi lần build; chưa phải incremental Gold. Silver chọn một benchmark ID lớn nhất mỗi laptop để tránh fanout; raw/Bronze giữ toàn bộ benchmark. Brand rate dùng giao của detail/comparison session, cặp brand được chuẩn hóa không có hướng.
+Tên `gold_*` là convention project. Đổi tên model tạo relation mới, không tự rename/drop relation `mart_*` cũ. Gold rebuild theo model mỗi lần build; chưa phải incremental Gold. Sửa taxonomy cho dữ liệu lịch sử có thể cần full-refresh Silver vì incremental không đọc lại mọi row ngoài lookback.
 
-### 5.3 Quy ước thời gian và metric
+Silver event lọc event_name/session_id NULL, dedup ID và có watermark/lookback 2 giờ riêng từ MAX **Silver**, không phải MAX raw. `silver_session_day` là nguồn chung của daily KPI và funnel; comparison event-device bridge dùng chung cho attribution brand/product. `silver_comparison_sort_event` và `silver_device_traffic_event` chưa có Gold downstream trực tiếp.
 
-- `event_timestamp`: thời điểm client ghi nhận; `server_timestamp`: thời điểm server nhận.
-- Daily KPI mới nhóm `server_timestamp AT TIME ZONE 'Asia/Ho_Chi_Minh'` theo ngày.
-- `total_sessions` là distinct session **trong từng ngày**; SUM nhiều ngày là session-days.
-- `detail_rate_pct`: session có cả pageview và detail / session có pageview trong ngày.
-- `comparison_rate_pct`: session có cả detail và comparison / session có detail trong ngày.
-- Hai tỷ lệ đo cùng đạt bước, không chứng minh thứ tự chuyển đổi.
-- Session funnel dùng cùng session-day với KPI; ngày/tháng trên các nhánh event dùng business_date/business_month theo giờ Việt Nam. Session activity giữ timestamp bắt đầu và thêm ngày bắt đầu riêng.
+Nguồn có `DeviceComparisonHome`/`DeviceComparison`; Silver giữ `source_page_name` và chuẩn hóa trang comparison. Selection/add/chart-sort events được nhận diện; `device_ids` được mở rộng, khử ID lặp trong event và bỏ ID vượt phạm vi integer. OS đọc `os`, fallback `os_name`; thuộc tính session chọn first non-empty theo server timestamp/ID, thiếu thì `Unknown`.
 
-## 6. Serving và exposure
+| Gold model | Grain và phạm vi phân tích |
+|---|---|
+| `gold_daily_site_kpis` | Ngày Việt Nam; events, pageviews, active sessions, co-reach numerators và latest event |
+| `gold_behavior_funnel_daily` | Cùng session-day với KPI; đếm reach từng bước độc lập |
+| `gold_brand_interest` | Brand trong catalog; detail views, distinct sessions và comparison co-reach |
+| `gold_brand_comparison` | Cặp brand ID không có hướng; comparison co-occurrence trong session-day |
+| `gold_cpu_trend` / `gold_gpu_trend` | Tháng Việt Nam, component, brand; detail views, giữ cả nhóm ít view |
+| `gold_search_analytics` | Keyword lower/trim; search count và distinct sessions |
+| `gold_spec_popularity` | CPU/GPU/screen/battery; detail views, chưa có RAM/storage |
+| `gold_performance_ranking` | Laptop active và benchmark đại diện, một dòng/laptop |
+| `gold_performance_efficiency` | Laptop active/visible có benchmark; hiệu năng trên kg/Wh |
+| `gold_battery_vs_interest` | Laptop active; pin/benchmark, detail views và comparison interactions |
+| `gold_user_os` | OS/device type theo session, gồm `Unknown` |
 
-App truy vấn đủ 12 Gold model qua data access layer có allowlist; query chỉ đọc schema Gold.
+Benchmark đại diện là ID lớn nhất mỗi laptop vì chưa dùng được timestamp/version đáng tin cậy để chọn. Đây không phải khẳng định “benchmark mới nhất theo thời gian”. Raw/Bronze giữ mọi benchmark; Silver chọn một bản để tránh fanout. Danh mục hiện tại vẫn được join vào event lịch sử; chưa có SCD/snapshot lịch sử danh mục.
 
-App mới và exposure dùng đủ 12 Gold model, gồm cả behavior funnel, brand comparison, spec popularity và OS. Cache query 300 giây có thể giữ kết quả trước lượt build vừa xong. Chưa có publish/swap đồng loạt toàn bộ Gold, nên khi build lỗi giữa chừng app có thể thấy các mart từ những run khác nhau.
+## 6. Contract thời gian, metric và serving
 
-Dashboard đã sửa Today theo ngày thật, dùng nhãn session-days khi cộng nhiều ngày, giữ N/A và search literal. Latest received event không được trình bày như thời điểm job hoàn tất.
+- `event_timestamp` là thời điểm client ghi nhận; `server_timestamp` là thời điểm server nhận. Ngày/tháng nghiệp vụ dùng `Asia/Ho_Chi_Minh` qua [`business_time.sql`](../../dbt/macros/business_time.sql); timestamp gốc vẫn giữ timezone.
+- Daily sessions là distinct session trong từng ngày. Session qua nửa đêm có thể thuộc hai ngày; SUM daily sessions là **session-days**, không phải unique sessions toàn kỳ.
+- `detail_rate_pct` = session có cả pageview và detail / session có pageview; `comparison_rate_pct` = session có cả detail và comparison / session có detail, trong cùng ngày. Cộng tử/mẫu rồi chia, không lấy trung bình phần trăm theo ngày.
+- Funnel/reach không yêu cầu thứ tự hành vi nên chưa phải sequential conversion. Daily KPI, all-time brand và OS có grain khác nhau; không ép tổng sessions bằng nhau.
+- Brand pairs đo đồng xuất hiện trong comparison interactions của session-day, không chứng minh cùng một action so sánh đồng thời. Search volume chưa chứng minh zero-result hoặc product gap.
 
-## 7. Backfill và phục hồi
+Streamlit có 5 tab sử dụng đủ 12 Gold model, khớp exposure. Data access có allowlist, đọc Gold và cache 300 giây. Today dùng ngày Việt Nam thật; query lỗi hiển thị error thay vì KPI 0; benchmark thiếu là N/A/NULL; literal search không coi punctuation là regex. Latest received event không phải thời điểm job hoàn tất.
 
-```mermaid
-%%{init: {"flowchart": {"htmlLabels": false}}}%%
-flowchart LR
-    R["Chọn start và end có timezone"] --> E["Extract theo server timestamp<br/>trong khoảng start-inclusive,<br/>end-exclusive"]
-    E --> U["Upsert raw; dimension refresh về<br/>hiện tại"]
-    U --> W{"Dữ liệu cũ nằm ngoài cửa sổ<br/>Silver?"}
-    W -->|"Có"| REBUILD["Rebuild hoặc backfill Silver và<br/>downstream trong dev trước"]
-    W -->|"Không"| BUILD["Freshness và dbt build thông<br/>thường"]
-    REBUILD --> VERIFY["Đối soát ID, version và metric"]
-    BUILD --> VERIFY
-```
+Gold chưa có publish/swap đồng loạt. Nếu một model/test fail sau khi vài Gold table đã build, dashboard có thể đọc các phiên bản khác nhau. Reconcile thành công và validated Asset không thay thế transaction publish toàn bộ warehouse.
 
-CLI `--start`/`--end` đã có trong ingestion. Full-refresh dbt chỉ đọc raw đang có, không truy vấn lại ClickHouse. Lookback hữu hạn có thể bỏ sót bản xuất hiện ở nguồn với timestamp quá cũ; hai cửa sổ 2 giờ không phải bảo đảm không mất dữ liệu.
+## 7. Backfill và kiểm chứng
 
-Lệnh chạy, lưu ý Neon và database test: [ingestion operations](../guides/ingestion_operations.md).
+CLI ingestion có `--start`/`--end`, khoảng `[start,end)` theo server timestamp. Dimension vẫn là snapshot hiện tại. Event được thêm/sửa muộn nhưng mang timestamp quá cũ có thể ngoài lookback raw hoặc Silver; cần backfill/rebuild và đối soát. `dbt --full-refresh` chỉ đọc raw hiện có, không tự truy vấn lại ClickHouse. DAG hiện chưa truyền bounded interval cho historical replay. Lệnh xem [ingestion](../guides/ingestion.md) và [dbt](../guides/dbt.md).
 
-## 8. CI và bằng chứng kiểm thử
+CI compile Python, chạy unit/guard/PostgreSQL integration, dbt parse bằng cấu hình giả, fixture full build/replay rồi AppTest trên Gold fixture. Không cần credential nguồn thật. Fixture/reset chỉ được dùng `laplaptech_pipeline_test`; ad-hoc runner luôn chặn warehouse active và URL query override đích. Kiểm tra type/resource bằng parse không chứng minh dữ liệu đúng; freshness mới cũng không chứng minh mọi ID/version đầy đủ.
 
-```mermaid
-%%{init: {"flowchart": {"htmlLabels": false}}}%%
-flowchart LR
-    PR["Pull request hoặc push develop"] --> CI["validate.yml trên runner"]
-    CI --> PG["PostgreSQL 16 service test riêng"]
-    PG --> UT["Unit/config và PostgreSQL<br/>integration tests"]
-    UT --> PARSE["dbt parse bằng cấu hình giả"]
-    PARSE --> E2E["Fixture: full build, replay, 47<br/>data tests"]
-    E2E --> UI["Dashboard AppTest trên Gold đã<br/>build"]
-```
+Ngày **20/10/2026**, [system report](../validation/system_check_2026-10-20.json) ghi 784.914 event, raw/Silver/Gold daily totals khớp, 31 model và 47 data tests đạt trong run Airflow mới. [Regression report](../validation/regression_check_2026-10-20.json) ghi fixture full/replay và **43/43 Python tests pass**. Đây là snapshot theo thời điểm report, không phải số row/test cố định cho mọi lượt chạy.
 
-Validate còn compile Python trước khi chạy tests. Không cần credential Neon/ClickHouse. Mỗi integration test tạo schema UUID và dọn đúng schema đó trong database local test.
+Runtime dùng 85 package pin trong [`requirements.lock.txt`](../../requirements.lock.txt); `.in` ghi intent, `.txt` trỏ lock. Script lock chỉ ghi closure từ môi trường đã resolve/test, không tự resolve version mới; lock chưa có artifact hashes. Base image tags chưa pin digest. Các report lịch sử giữ nguyên ngày/phạm vi tại [validation index](../validation/README.md); không suy ra đã diễn tập restore từ archive đọc được.
 
-Kết quả đã ghi nhận ngày 19/10/2026: 28/28 Python test pass; 31 model build thành công và 47 data test pass trên fixture lẫn nguồn thật 784.455 event trong dev local. Có 6 source và 1 exposure; 47 tests gồm 41 generic và 6 singular. Freshness là lệnh riêng; exposure không tính là test. Báo cáo này ghi nhận lần kiểm chứng dev; chủ project xác nhận hiện đã chạy trên Neon. Bộ 85 dependency khóa đã cài sạch trên Windows và Linux.
+## 8. Hướng nghiên cứu còn lại
 
-## 9. Luồng roadmap — cập nhật 20/10/2026
+| Ưu tiên theo nhu cầu | Kết quả cần chứng minh |
+|---|---|
+| Backup/restore | Restore warehouse và metadata vào volume/DB riêng, đối chiếu counts và run history |
+| Schema/constraints/quarantine | DB rỗng và batch rỗng có contract rõ; duplicate/NULL/type/JSON drift bị xử lý hoặc cách ly có lý do |
+| Bounded backfill + audit | Khoảng `[start,end)` đi đến ingestion/Silver; replay sửa được event ngoài lookback; ghi rows/watermark và phân biệt no-new-data với job chưa chạy |
+| Consistent Gold publication | Build lỗi không làm dashboard đọc hỗn hợp snapshot |
+| Scale extraction hoặc SCD/CDC | Chọn khi đo được bottleneck RAM hoặc cần lịch sử danh mục/update/delete; không chỉ tăng lookback |
+| Release và vận hành dài hạn | Pin digest, clean-machine smoke, retention logs/artifacts, CI Docker/DAG import; nếu cần lịch liên tục thì dùng host thường trực |
 
-### B — Airflow Docker chung cho lab cá nhân, làm trước
-
-```mermaid
-%%{init: {"flowchart": {"htmlLabels": false}}}%%
-flowchart TD
-    AF["Platform Airflow 3.3.2 độc lập"] --> SMOKE["Smoke DAG / project tương lai"]
-    AF --> LAP["DAG LaplapTech lab"]
-    LAP --> RT["Task runtime Python 3.13"]
-    SRC["ClickHouse public"] --> RT
-    RT --> DEV["Warehouse dev riêng"]
-    GH["Actions giữ nguyên"] --> NEON["Neon đang vận hành"]
-```
-
-Đã có bộ cấu hình Compose, env generator và DAG kiểm tra nền tảng cho platform Airflow 3.3.2/LocalExecutor độc lập; chủ project gửi kết quả init/service health/smoke DAG success ngày 20/10/2026. Các kết nối pipeline trong sơ đồ này chưa triển khai; có [bài thực hành kèm code mẫu](../guides/airflow_laplaptech_walkthrough.md) cho bước tích hợp. Stack NASDAQ100 cũ đã gỡ. Lab dừng khi Docker tắt; cloud tiếp tục chạy theo Actions. Không có bước tắt workflow sync hoặc chuyển lịch chính trong roadmap hiện tại.
-
-Nối data interval vào bounded ingestion và xử lý Silver ngoài lookback là công việc sau manual/replay, không chỉ bật catchup. Chi tiết: [Triển khai Airflow](../guides/airflow_setup.md).
-
-### C — Engineering sau Airflow
-
-Bootstrap schema, raw constraints/index, chính sách JSON lỗi/quarantine, run/stage audit, backfill/recovery và lưu artifacts có tiêu chí nghiệm thu riêng trong [backlog](remaining_work.md). Các thay đổi được test trên lab trước; không suy diễn việc có DAG xanh là mọi invariant đã được enforce.
-
-### D — Docker full cho cộng đồng, làm cuối
-
-```mermaid
-%%{init: {"flowchart": {"htmlLabels": false}}}%%
-flowchart TD
-    SRC["ClickHouse public"] --> P["Runtime ingestion local"]
-    AF["Airflow standalone LaplapTech"] -.-> P
-    AF -.-> DBT["dbt CLI local"]
-    AF -.-> META["Metadata PostgreSQL riêng"]
-    P --> W["Warehouse PostgreSQL local"]
-    DBT -.-> W
-    W --> APP["Streamlit local"]
-```
-
-Đây là bản standalone cho người clone: không mount DAG project khác, không dùng database/credential Neon của chủ repo. Mỗi người có volumes, cấu hình và kết quả riêng; nguồn thật dùng chung ClickHouse public. Bộ Compose full và quickstart được làm sau các nâng cấp engineering cốt lõi. Nó bổ sung cách chạy dự án, không thay cách host hoặc lịch Actions hiện tại. [Docker distribution plan](../guides/docker_distribution_plan.md).
-
-Sơ đồ SVG ở phần tổng quan vẫn mô tả luồng cloud đang chạy; các kết nối pipeline trong sơ đồ mục này là kế hoạch. Xem [upgrade plan](upgrade_plan.md) để theo dõi B → C → D và trạng thái triển khai.
+Đây là backlog nghiên cứu, không phải khả năng đã có chỉ vì Docker services hoặc DAG đang xanh. Luồng local không phụ thuộc Neon; việc xóa project cloud là thao tác riêng và không được xác nhận bởi report local.

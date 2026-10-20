@@ -1,0 +1,255 @@
+{
+  "started_at_utc": "2026-10-20T12:39:28.701174+00:00",
+  "scope": "local Docker services, warehouse, Airflow and dashboard",
+  "pipeline_requested": true,
+  "checks": {
+    "compose_config": true,
+    "six_services_healthy": true,
+    "dag_import_errors": 0,
+    "warehouse_pool_slots": 1,
+    "schedule": {
+      "is_paused": false,
+      "next_run_utc": "2026-10-21T01:15:00+00:00",
+      "timezone": "Asia/Ho_Chi_Minh",
+      "cron": [
+        "15 8 * * *",
+        "45 16 * * *"
+      ]
+    },
+    "incremental_pipeline_and_dbt_tests": true,
+    "runtime_identity_lock_and_reconciliation": {
+      "reconciliation": {
+        "schema_counts": {
+          "raw": 6,
+          "public_bronze": 6,
+          "public_silver": 13,
+          "public_gold": 12
+        },
+        "row_counts": {
+          "public_bronze.bronze_brand": 20,
+          "public_bronze.bronze_cpu_model": 90,
+          "public_bronze.bronze_gpu_model": 57,
+          "public_bronze.bronze_laptop_benchmark_result": 7,
+          "public_bronze.bronze_laptop_model": 164,
+          "public_bronze.bronze_user_event_tracking": 784914,
+          "public_gold.gold_battery_vs_interest": 155,
+          "public_gold.gold_behavior_funnel_daily": 643,
+          "public_gold.gold_brand_comparison": 89,
+          "public_gold.gold_brand_interest": 14,
+          "public_gold.gold_cpu_trend": 1807,
+          "public_gold.gold_daily_site_kpis": 643,
+          "public_gold.gold_gpu_trend": 1570,
+          "public_gold.gold_performance_efficiency": 5,
+          "public_gold.gold_performance_ranking": 155,
+          "public_gold.gold_search_analytics": 35641,
+          "public_gold.gold_spec_popularity": 151,
+          "public_gold.gold_user_os": 11,
+          "public_silver.silver_brand": 20,
+          "public_silver.silver_comparison_event_device": 45805,
+          "public_silver.silver_comparison_session_device": 30285,
+          "public_silver.silver_comparison_sort_event": 3527,
+          "public_silver.silver_cpu_model": 90,
+          "public_silver.silver_device_traffic_event": 260043,
+          "public_silver.silver_gpu_model": 57,
+          "public_silver.silver_laptop_benchmark_result": 7,
+          "public_silver.silver_laptop_model": 164,
+          "public_silver.silver_session_activity": 88692,
+          "public_silver.silver_session_day": 90304,
+          "public_silver.silver_session_funnel": 90304,
+          "public_silver.silver_user_event_tracking": 784914,
+          "raw.brand": 20,
+          "raw.cpu_model": 90,
+          "raw.gpu_model": 57,
+          "raw.laptop_benchmark_result": 7,
+          "raw.laptop_model": 164,
+          "raw.user_event_tracking": 784914
+        },
+        "raw_events": 784914,
+        "silver_events": 784914,
+        "gold_daily_events": 784914,
+        "duplicate_raw_ids": 0,
+        "daily_metric_mismatches": 0
+      },
+      "locked_packages": 85,
+      "uid": 10001,
+      "source_hashes": {
+        "/app/scripts/run_airflow_stage.py": "c748ff1d60b97e560d90ee053a09d79feacd983a7b242d62c709abbe874d2fc2",
+        "/app/requirements.lock.txt": "bea5ca2d8648d300aa31460330fd8629a9a8c903d25890a9bb7d828637e3f61f"
+      }
+    },
+    "dashboard_no_source_credentials": true,
+    "http_and_dashboard_database_health": true,
+    "dashboard_app_test_live_gold": {
+      "tabs": 5,
+      "today_and_all_available": true,
+      "literal_search": true,
+      "exceptions": 0
+    },
+    "runtime_dependencies": "No broken requirements found.",
+    "airflow-scheduler_dependencies": "No broken requirements found.",
+    "dashboard_dependencies": "No broken requirements found."
+  },
+  "status": "success",
+  "services": {
+    "airflow-platform-metadata-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d"
+    },
+    "airflow-platform-warehouse-laplaptech-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d"
+    },
+    "airflow-platform-airflow-api-server-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:84c47a2f87a2f4ef241422e769fe6d257bc301a40d940ed54556a84094ff17a8"
+    },
+    "airflow-platform-airflow-scheduler-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:84c47a2f87a2f4ef241422e769fe6d257bc301a40d940ed54556a84094ff17a8"
+    },
+    "airflow-platform-airflow-dag-processor-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:84c47a2f87a2f4ef241422e769fe6d257bc301a40d940ed54556a84094ff17a8"
+    },
+    "airflow-platform-dashboard-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:fc499e3a438829833a23549f102ed1bcd0fee16c26ea3434d511a649ebdf73bf"
+    }
+  },
+  "pipeline_run": {
+    "run_id": "system_check_20261020T123930868345Z",
+    "state": "success",
+    "tasks": [
+      {
+        "task_id": "build",
+        "state": "success",
+        "try_number": 1
+      },
+      {
+        "task_id": "freshness",
+        "state": "success",
+        "try_number": 1
+      },
+      {
+        "task_id": "ingest",
+        "state": "success",
+        "try_number": 1
+      },
+      {
+        "task_id": "reconcile",
+        "state": "success",
+        "try_number": 1
+      }
+    ],
+    "stages": {
+      "ingest": {
+        "run_id": "system_check_20261020T123930868345Z",
+        "stage": "ingest",
+        "attempt": 1,
+        "started_at": "2026-10-20T12:39:40.469939+00:00",
+        "status": "success",
+        "exit_code": 0,
+        "finished_at": "2026-10-20T12:39:44.186822+00:00",
+        "artifact_path": "/artifacts/a99d9e827b1b9a5c8668/ingest/attempt-1-e39e7182"
+      },
+      "freshness": {
+        "run_id": "system_check_20261020T123930868345Z",
+        "stage": "freshness",
+        "attempt": 1,
+        "started_at": "2026-10-20T12:39:46.643140+00:00",
+        "status": "success",
+        "exit_code": 0,
+        "finished_at": "2026-10-20T12:39:51.971313+00:00",
+        "artifact_path": "/artifacts/a99d9e827b1b9a5c8668/freshness/attempt-1-074927ff",
+        "source_status_counts": {
+          "pass": 1
+        }
+      },
+      "build": {
+        "run_id": "system_check_20261020T123930868345Z",
+        "stage": "build",
+        "attempt": 1,
+        "started_at": "2026-10-20T12:39:54.726900+00:00",
+        "status": "success",
+        "exit_code": 0,
+        "finished_at": "2026-10-20T12:40:16.114666+00:00",
+        "artifact_path": "/artifacts/a99d9e827b1b9a5c8668/build/attempt-1-560d6f03",
+        "dbt_status_counts": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "full_refresh": false
+      },
+      "reconcile": {
+        "run_id": "system_check_20261020T123930868345Z",
+        "stage": "reconcile",
+        "attempt": 1,
+        "started_at": "2026-10-20T12:40:17.872594+00:00",
+        "status": "success",
+        "exit_code": 0,
+        "reconciliation": {
+          "schema_counts": {
+            "raw": 6,
+            "public_bronze": 6,
+            "public_silver": 13,
+            "public_gold": 12
+          },
+          "row_counts": {
+            "public_bronze.bronze_brand": 20,
+            "public_bronze.bronze_cpu_model": 90,
+            "public_bronze.bronze_gpu_model": 57,
+            "public_bronze.bronze_laptop_benchmark_result": 7,
+            "public_bronze.bronze_laptop_model": 164,
+            "public_bronze.bronze_user_event_tracking": 784914,
+            "public_gold.gold_battery_vs_interest": 155,
+            "public_gold.gold_behavior_funnel_daily": 643,
+            "public_gold.gold_brand_comparison": 89,
+            "public_gold.gold_brand_interest": 14,
+            "public_gold.gold_cpu_trend": 1807,
+            "public_gold.gold_daily_site_kpis": 643,
+            "public_gold.gold_gpu_trend": 1570,
+            "public_gold.gold_performance_efficiency": 5,
+            "public_gold.gold_performance_ranking": 155,
+            "public_gold.gold_search_analytics": 35641,
+            "public_gold.gold_spec_popularity": 151,
+            "public_gold.gold_user_os": 11,
+            "public_silver.silver_brand": 20,
+            "public_silver.silver_comparison_event_device": 45805,
+            "public_silver.silver_comparison_session_device": 30285,
+            "public_silver.silver_comparison_sort_event": 3527,
+            "public_silver.silver_cpu_model": 90,
+            "public_silver.silver_device_traffic_event": 260043,
+            "public_silver.silver_gpu_model": 57,
+            "public_silver.silver_laptop_benchmark_result": 7,
+            "public_silver.silver_laptop_model": 164,
+            "public_silver.silver_session_activity": 88692,
+            "public_silver.silver_session_day": 90304,
+            "public_silver.silver_session_funnel": 90304,
+            "public_silver.silver_user_event_tracking": 784914,
+            "raw.brand": 20,
+            "raw.cpu_model": 90,
+            "raw.gpu_model": 57,
+            "raw.laptop_benchmark_result": 7,
+            "raw.laptop_model": 164,
+            "raw.user_event_tracking": 784914
+          },
+          "raw_events": 784914,
+          "silver_events": 784914,
+          "gold_daily_events": 784914,
+          "duplicate_raw_ids": 0,
+          "daily_metric_mismatches": 0
+        },
+        "finished_at": "2026-10-20T12:40:20.981698+00:00",
+        "artifact_path": "/artifacts/a99d9e827b1b9a5c8668/reconcile/attempt-1-5c016b9e"
+      }
+    }
+  },
+  "finished_at_utc": "2026-10-20T12:40:37.728611+00:00"
+}

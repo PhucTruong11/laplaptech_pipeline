@@ -3,7 +3,7 @@ name: Validate pipeline code
 on:
   pull_request:
   push:
-    branches: [develop]
+    branches: [develop, main]
 permissions:
   contents: read
 jobs:
@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: requirements.lock.txt
       - run: pip install -r requirements.txt
       - run: python -m pip check
-      - run: python -m compileall -q ingestion streamlit_app
+      - run: python -m compileall -q ingestion streamlit_app scripts infra/laplaptech/dags
       - name: Test ingestion and daily KPI on isolated PostgreSQL
         run: python -m unittest discover -s tests -v
         env:

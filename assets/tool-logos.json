@@ -1,0 +1,89 @@
+{
+  "artifact": "data-flow.svg",
+  "retrieved_on": "2026-10-20",
+  "usage": "Embedded vector logos identify the tools used by this project; no affiliation or endorsement is implied.",
+  "artwork": "Original upstream paths, colors and aspect ratios are retained. IDs for clips and masks are namespaced. White chips provide contrast for dark wordmarks.",
+  "licensing_note": "The repository MIT license covers original project work, not third-party brand rights. Simple Icons distributes its collection under CC0-1.0; individual brand artwork and trademarks remain subject to their applicable owners and terms. See upstream sources and guidelines.",
+  "simple_icons_disclaimer": "https://github.com/simple-icons/simple-icons/blob/develop/DISCLAIMER.md",
+  "logos": [
+    {
+      "name": "Apache Airflow",
+      "symbol": "logo-apacheairflow",
+      "downloaded_from": "https://airflow.apache.org/images/airflow-icon.svg",
+      "upstream_source": "https://airflow.apache.org/community/resources/",
+      "original_viewbox": "0 0 175 175",
+      "source_sha256": "5ef09e84bc3ec931468369b388e9be65fd68fd93c09e53f73b15f295f67f60e3"
+    },
+    {
+      "name": "dbt",
+      "symbol": "logo-dbt",
+      "downloaded_from": "https://raw.githubusercontent.com/dbt-labs/docs.getdbt.com/current/website/static/img/dbt-logo.svg",
+      "upstream_source": "https://github.com/dbt-labs/docs.getdbt.com/blob/current/website/static/img/dbt-logo.svg",
+      "original_viewbox": "0 0 139 32",
+      "source_sha256": "c5ba37661581576414d0ef2758e8aa6151ca3751c940d0dbd10c1cd212fbda24"
+    },
+    {
+      "name": "ClickHouse",
+      "symbol": "logo-clickhouse",
+      "downloaded_from": "https://cdn.simpleicons.org/clickhouse",
+      "upstream_source": "https://github.com/ClickHouse/ClickHouse/blob/12bd453a43819176d25ecf247033f6cb1af54beb/website/images/logo-clickhouse.svg",
+      "original_viewbox": "0 0 24 24",
+      "source_sha256": "56b721320616172170bb817a949dd88f71a52254b07caeec6589d0ff9d363cb5",
+      "collection": "Simple Icons",
+      "collection_url": "https://github.com/simple-icons/simple-icons"
+    },
+    {
+      "name": "Docker",
+      "symbol": "logo-docker",
+      "downloaded_from": "https://cdn.simpleicons.org/docker",
+      "upstream_source": "https://www.docker.com/company/newsroom/media-resources",
+      "original_viewbox": "0 0 24 24",
+      "source_sha256": "ba1fb157870b2ec02e054aed42154ac7418e25af91ec321fd328d17cad4023cd",
+      "collection": "Simple Icons",
+      "collection_url": "https://github.com/simple-icons/simple-icons"
+    },
+    {
+      "name": "GitHub Actions",
+      "symbol": "logo-githubactions",
+      "downloaded_from": "https://cdn.simpleicons.org/githubactions",
+      "upstream_source": "https://github.com/features/actions",
+      "original_viewbox": "0 0 24 24",
+      "source_sha256": "68e27a7570b9e0f18a1f85d84d211f3328d845dfac8ce7e101ec16576c67db5b",
+      "collection": "Simple Icons",
+      "collection_url": "https://github.com/simple-icons/simple-icons"
+    },
+    {
+      "name": "PostgreSQL",
+      "symbol": "logo-postgresql",
+      "downloaded_from": "https://cdn.simpleicons.org/postgresql",
+      "upstream_source": "https://wiki.postgresql.org/wiki/Logo",
+      "original_viewbox": "0 0 24 24",
+      "source_sha256": "bc45b1c56d0b1501dea387dbec4fda450d2ebc35244a620791815509d8c41dba",
+      "collection": "Simple Icons",
+      "collection_url": "https://github.com/simple-icons/simple-icons",
+      "brand_guidelines": "https://www.postgresql.org/about/policies/trademarks/"
+    },
+    {
+      "name": "Python",
+      "symbol": "logo-python",
+      "downloaded_from": "https://cdn.simpleicons.org/python",
+      "upstream_source": "https://www.python.org/community/logos/",
+      "original_viewbox": "0 0 24 24",
+      "source_sha256": "a762008752dc999ad54e7e477194f12a1b2ce07c735be1f21b3b3af8f26eb7af",
+      "collection": "Simple Icons",
+      "collection_url": "https://github.com/simple-icons/simple-icons",
+      "brand_guidelines": "https://www.python.org/community/logos/"
+    },
+    {
+      "name": "Streamlit",
+      "symbol": "logo-streamlit",
+      "downloaded_from": "https://cdn.simpleicons.org/streamlit",
+      "upstream_source": "https://www.streamlit.io/brand",
+      "original_viewbox": "0 0 24 24",
+      "source_sha256": "e4376e9336be556ab4a034eff4e9113d97d74ee4446e0c969751f26dd117f4b6",
+      "collection": "Simple Icons",
+      "collection_url": "https://github.com/simple-icons/simple-icons",
+      "brand_guidelines": "https://www.streamlit.io/brand"
+    }
+  ]
+}
