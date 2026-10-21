@@ -2,7 +2,13 @@
 from datetime import datetime, timedelta
 import logging
 from pathlib import Path
+import sys
 from zoneinfo import ZoneInfo
+
+# Đảm bảo root thư mục dự án luôn nằm trong sys.path để import được streamlit_app
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from dotenv import load_dotenv
 import pandas as pd
@@ -14,7 +20,7 @@ from streamlit_app.data import (
     numeric_label, summarize_daily,
 )
 
-load_dotenv(Path(__file__).resolve().parents[1] / '.env')
+load_dotenv(ROOT_DIR / '.env')
 st.set_page_config(page_title='LaplapTech | Analytics', page_icon='◈', layout='wide')
 VN = ZoneInfo('Asia/Ho_Chi_Minh')
 COLORS = ['#68d8ee', '#a78bfa', '#34d399', '#fbbf24', '#fb7185', '#60a5fa', '#94a3b8']
