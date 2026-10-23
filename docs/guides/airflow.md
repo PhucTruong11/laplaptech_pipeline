@@ -10,10 +10,12 @@ Stack đã được dựng theo [hướng dẫn Docker](docker.md), Docker Deskt
 | DAG processor | Import source DAG và lưu định nghĩa vào metadata |
 | Scheduler + LocalExecutor | Lập lịch, chạy Airflow task process và gọi Docker Engine |
 | Metadata PostgreSQL | Giữ user, DAG/run/task state, Connections/Variables; tách khỏi warehouse |
-| DockerOperator | Tạo runtime container, thu stdout/stderr và chờ exit code |
+| BudgetDockerOperator (dựa trên DockerOperator) | Tạo runtime container, thu stdout/stderr và chờ exit code |
 | Runtime Python/dbt | Đọc ClickHouse, nạp raw, kiểm tra và biến đổi dữ liệu trong warehouse |
 
 Airflow quản lý thứ tự và trạng thái task; dependency SQL giữa 31 model vẫn do dbt quản lý. Xem [dbt](dbt.md) để chạy/chọn model và [data flow](../architecture/data_flow.md) để hiểu grain/metric.
+
+Kế hoạch nâng cấp để hiển thị/chạy từng model trên Airflow có tại [Cosmos step by step](../plans/cosmos.md). Đây là tài liệu thực hành chưa triển khai; flow hiện hành vẫn dùng một task `build`.
 
 ## 2. Source, workspace và cấu hình
 
@@ -75,9 +77,9 @@ ingest → freshness → build → reconcile
 
 Lịch là **08:15 và 16:45**, timezone `Asia/Ho_Chi_Minh`, với hai cron `15 8 * * *` và `45 16 * * *`. `catchup=False` không tạo mọi lượt bị lỡ và không thay bounded backfill. Khi Docker tắt, scheduler dừng; GitHub CI không chạy ETL thay nó.
 
-`max_active_runs=1`, `max_active_tasks=1` và pool `laplaptech_warehouse=1` giới hạn writer của DAG; toàn run có timeout 2 giờ. Các cơ chế này không chặn người tự chạy CLI ngoài Airflow trên cùng warehouse.
+`max_active_runs=1`, `max_active_tasks=1` giới hạn writer của DAG; pool RAM dùng chung `platform_memory=4` nhận task theo trọng số RAM; toàn run có timeout 2 giờ. Các cơ chế này không chặn người tự chạy CLI ngoài Airflow trên cùng warehouse.
 
-Factory `pipeline_stage` dùng cùng image `laplaptech-runtime:local-v1`, UID 10001 và giới hạn RAM 2 GB mỗi task. Config volume chỉ đọc; artifact volume cho phép ghi. `mount_tmp_dir=False` tránh cố mount đường dẫn tạm của scheduler vào sibling container. Dataset không truyền qua XCom.
+Factory `pipeline_stage` dùng `BudgetDockerOperator`, image `laplaptech-runtime:local-v1`, UID 10001. RAM/CPU/slot theo stage lấy từ policy dùng chung: ingest 2048 MiB/2 CPU/4 slot, freshness và reconcile 512 MiB/1 CPU/1 slot, build 1024 MiB/1 CPU/2 slot. Xem [quản lý tài nguyên](resources.md) để thêm project hoặc thay ngân sách. Config volume chỉ đọc; artifact volume cho phép ghi. `mount_tmp_dir=False` tránh cố mount đường dẫn tạm của scheduler vào sibling container. Dataset không truyền qua XCom.
 
 `full_refresh=true` chỉ thêm `--full-refresh` vào **dbt build**; nó rebuild incremental Silver từ raw hiện có, không kéo lại toàn bộ version lịch sử ClickHouse. Ingestion vẫn theo snapshot/lookback của loader.
 
@@ -103,7 +105,7 @@ docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml logs -
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml exec -T airflow-scheduler airflow pools list
 ```
 
-**Checkpoint:** bốn task success, artifact của đúng run ghi đủ 31 model/47 data tests đạt và reconcile khớp. Cách nghiệm thu lại bằng verifier có trong [testing](testing.md); các report theo ngày nằm ở [validation](../validation/README.md).
+**Checkpoint:** bốn task success, artifact của đúng run ghi đủ 31 model/47 data tests đạt và reconcile khớp. Cách nghiệm thu lại bằng verifier và report theo ngày nằm trong [testing guide](testing.md).
 
 ## 6. Sửa DAG hoặc runtime an toàn
 
@@ -115,7 +117,7 @@ Khi thay runtime/config, cách khuyến nghị là chạy lại bootstrap từ *
 .\scripts\Start-LocalStack.ps1
 ```
 
-Bootstrap tạm pause riêng DAG LaplapTech trước active-run check, giữ pause suốt build/nạp config, rồi khôi phục trạng thái cũ khi thành công. Nếu còn active run, nó dừng trước cập nhật. Nếu lỗi sau khi bắt đầu cập nhật, DAG giữ paused để sửa lỗi trước khi unpause. Xem [Docker](docker.md) cho rebuild, partial-stack recovery và giữ keys/volumes.
+Bootstrap tạm pause mọi DAG đang unpaused trên platform trước active-run check toàn platform, giữ pause suốt build/nạp config, rồi khôi phục trạng thái cũ khi thành công. Nếu còn active run, nó dừng trước cập nhật. Nếu lỗi sau khi bắt đầu cập nhật, DAG giữ paused để sửa lỗi trước khi unpause. Xem [Docker](docker.md) cho rebuild, partial-stack recovery và giữ keys/volumes.
 
 Nếu thao tác thủ công, pause DAG, đợi hết queued/running runs, rồi mới thay runtime/config; chỉ unpause sau khi kiểm chứng. Không đồng thời chạy ingestion ngoài Airflow; [ingestion](ingestion.md) mô tả recovery/backfill có kiểm soát.
 
@@ -136,7 +138,7 @@ Nếu thao tác thủ công, pause DAG, đợi hết queued/running runs, rồi 
 | DAG không xuất hiện/import error | Source mount, `LAPLAPTECH_PROJECT_DIR`, log processor và imports |
 | Task queued lâu | Scheduler health, pool, run trước và trạng thái paused |
 | Freshness error | `sources.json` và timestamp nguồn; không bỏ kiểm tra để làm run xanh |
-| Exit 137 | RAM/task log; 2 GB là giới hạn task, không phải tổng RAM stack |
+| Exit 137 | Đối chiếu OOM/log và RAM từng stage trong [resource policy](resources.md); SIGKILL không luôn là OOM |
 | Build/reconcile lỗi | `run_results.json`, stage report, DB target và [dbt guide](dbt.md) |
 
 Nâng Airflow cần pin core/provider/Python tương thích, pause/đợi active runs, backup metadata cùng `.env`, thử migration và restore trên môi trường riêng trước. Không chỉ đổi tag trên metadata đã migrate. Tham khảo [upgrade guide baseline 3.3.2](https://airflow.apache.org/docs/apache-airflow/3.3.2/installation/upgrading.html).

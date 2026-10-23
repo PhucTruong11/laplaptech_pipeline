@@ -7,7 +7,7 @@
 | Kiểm tra stack/dữ liệu hiện có | `verify_local_stack.py` | Warehouse hiện hành, không trigger ETL |
 | Nghiệm thu một lượt ETL mới | Verifier thêm `--run-pipeline` | Airflow đọc ClickHouse, ghi warehouse local |
 | Kiểm thử code/SQL bằng dữ liệu nhỏ | Fixture runner + Python tests | Chỉ `laplaptech_pipeline_test` riêng |
-| Đọc bằng chứng trước đây | [Validation index](../validation/README.md) | Snapshot theo thời điểm ghi report |
+| Đọc bằng chứng trước đây | [Danh sách report ở mục 8](#8-báo-cáo-kiểm-chứng-theo-ngày) | Snapshot theo thời điểm ghi report |
 
 Setup stack xem [Docker](docker.md); lệnh dbt và ý nghĩa artifacts xem [dbt](dbt.md). Chạy các lệnh sau từ **root repo**. Không suy ra trạng thái realtime từ report lịch sử.
 
@@ -19,7 +19,7 @@ Cần Python 3.10+ và Docker CLI; verifier chỉ dùng thư viện chuẩn Pyth
 python scripts/verify_local_stack.py --output scratch/system-check.json
 ```
 
-Verifier kiểm tra Compose, sáu service healthy, DAG import errors, pool/schedule, target identity, dependency lock, raw → Gold reconciliation, HTTP và dashboard AppTest. Probe/AppTest có thể tạo container/process kiểm tra; mặc định không trigger ingestion/build.
+Verifier mặc định kiểm tra năm service nền healthy, DAG import errors, giới hạn RAM/CPU thực tế và pool dùng chung/schedule, target identity, dependency lock, raw → Gold reconciliation và HTTP Airflow. Khi dashboard đã được bật, thêm `--with-dashboard` để kiểm tra HTTP, database và AppTest của nó. Với `--run-pipeline`, verifier còn đối chiếu cgroup bốn task với policy. Probe/AppTest có thể tạo container/process kiểm tra; mặc định không trigger ingestion/build. Xem [resource audit](resources.md) khi chỉ cần kiểm tra tài nguyên.
 
 Nếu chọn workspace platform khác lúc bootstrap, truyền cùng đường dẫn qua `--platform-dir`:
 
@@ -94,6 +94,7 @@ Giữ cùng môi trường Python của mục 3:
 & $python -m unittest discover -s tests -p test_airflow_stage.py -v
 & $python -m unittest discover -s tests -p test_dev_pipeline_guard.py -v
 & $python -m unittest discover -s tests -p test_bootstrap.py -v
+& $python -m unittest discover -s tests -p test_resource_policy.py -v
 ```
 
 Guard tests không kết nối warehouse thật. Bootstrap tests dùng Docker giả trong thư mục temp; cần PowerShell và sẽ skip nếu máy không có PowerShell. Không có `TEST_DATABASE_URL`, PostgreSQL integration tests skip; không có fixture Gold/`DASHBOARD_TEST_DATABASE_URL`, hai AppTest fixture skip. Vì vậy chỉ chạy unit tests không thay thế bước full regression ở mục 4.
@@ -122,3 +123,9 @@ Remove-Item Env:DEV_DATABASE_URL, Env:TEST_DATABASE_URL, Env:DASHBOARD_TEST_DATA
 `--rm` đã đặt lúc tạo container nên Docker tự xóa container test sau khi dừng. Warehouse/metadata/config/artifact volumes của Airflow giữ nguyên. Không dùng `docker system prune` hoặc `compose down -v` để dọn một phiên test.
 
 Lỗi connection refused: kiểm tra readiness/cổng; `28P01`: nhập đúng credential test; guard chặn: sửa URL về database test thay vì bỏ guard; model/test lỗi: đọc lỗi đầu và `run_results.json`; AppTest thiếu Gold: chạy fixture runner thành công trước. Thêm chi tiết dbt trong [dbt guide](dbt.md).
+
+## 8. Báo cáo kiểm chứng theo ngày
+
+Các JSON trong [`docs/validation`](../validation/) là snapshot theo thời điểm và phạm vi ghi nhận, không phải health endpoint realtime. Report gần nhất: [BrewLite/resource 22/10](../validation/brewlite_resource_2026-10-22.json), [Docker restart 22/10](../validation/docker_restart_2026-10-22.json), [resource rollout 22/10](../validation/resource_check_2026-10-22.json). Kiểm chứng pipeline và regression: [system check 20/10](../validation/system_check_2026-10-20.json), [regression 20/10](../validation/regression_check_2026-10-20.json), [local cutover 20/10](../validation/local_cutover_2026-10-20.json). Lịch sử dựng Docker và dev: [Airflow setup](../validation/airflow_docker_setup_2026-10-20.json), [dev run 19/10](../validation/dev_run_2026-10-19.json).
+
+Giữ report lịch sử nguyên trạng; tạo report mới khi kiểm tra lại. Không suy ra đã diễn tập restore hoặc đã xóa Neon từ các report local.

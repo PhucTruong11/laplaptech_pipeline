@@ -1,0 +1,456 @@
+{
+  "started_at_utc": "2026-10-22T03:53:21.875746+00:00",
+  "scope": "Post-restart Docker/WSL validation, restored existing containers/schedules and real LaplapTech incremental pipeline",
+  "pipeline_requested": true,
+  "checks": {
+    "compose_config": true,
+    "six_services_healthy": true,
+    "dag_import_errors": 0,
+    "resource_limits_and_shared_pool": {
+      "checked_at_utc": "2026-10-22T03:56:09.631419+00:00",
+      "status": "success",
+      "engine": {
+        "memory_mib": 7942,
+        "cpus": 6
+      },
+      "budget": {
+        "services_mib": 4608,
+        "tasks_mib": 2048,
+        "headroom_mib": 768,
+        "required_host_mib": 7936,
+        "engine_required_mib": 7424
+      },
+      "pool": {
+        "name": "platform_memory",
+        "slots": "4"
+      },
+      "services": [
+        {
+          "service": "metadata",
+          "memory_mib": 512,
+          "cpu_limit": 0.5,
+          "pids_limit": 512,
+          "swap_disabled": true,
+          "oom_killed": false,
+          "restarts": 0,
+          "state": "running",
+          "health": "healthy"
+        },
+        {
+          "service": "airflow-api-server",
+          "memory_mib": 1024,
+          "cpu_limit": 1.0,
+          "pids_limit": 512,
+          "swap_disabled": true,
+          "oom_killed": false,
+          "restarts": 0,
+          "state": "running",
+          "health": "healthy"
+        },
+        {
+          "service": "airflow-scheduler",
+          "memory_mib": 1024,
+          "cpu_limit": 1.5,
+          "pids_limit": 512,
+          "swap_disabled": true,
+          "oom_killed": false,
+          "restarts": 0,
+          "state": "running",
+          "health": "healthy"
+        },
+        {
+          "service": "airflow-dag-processor",
+          "memory_mib": 512,
+          "cpu_limit": 1.0,
+          "pids_limit": 512,
+          "swap_disabled": true,
+          "oom_killed": false,
+          "restarts": 0,
+          "state": "running",
+          "health": "healthy"
+        },
+        {
+          "service": "warehouse-laplaptech",
+          "memory_mib": 1024,
+          "cpu_limit": 1.5,
+          "pids_limit": 256,
+          "swap_disabled": true,
+          "oom_killed": false,
+          "restarts": 0,
+          "state": "running",
+          "health": "healthy"
+        },
+        {
+          "service": "dashboard",
+          "memory_mib": 512,
+          "cpu_limit": 0.5,
+          "pids_limit": 256,
+          "swap_disabled": true,
+          "oom_killed": false,
+          "restarts": 0,
+          "state": "running",
+          "health": "healthy"
+        }
+      ],
+      "usage": [
+        {
+          "BlockIO": "71.2MB / 4.37MB",
+          "CPUPerc": "1.47%",
+          "Container": "airflow-platform-metadata-1",
+          "ID": "535916ebd02e",
+          "MemPerc": "13.43%",
+          "MemUsage": "68.78MiB / 512MiB",
+          "Name": "airflow-platform-metadata-1",
+          "NetIO": "6.36MB / 5.91MB",
+          "PIDs": "10"
+        },
+        {
+          "BlockIO": "57.6MB / 0B",
+          "CPUPerc": "0.21%",
+          "Container": "airflow-platform-airflow-api-server-1",
+          "ID": "cfdd7a91576c",
+          "MemPerc": "31.56%",
+          "MemUsage": "323.1MiB / 1GiB",
+          "Name": "airflow-platform-airflow-api-server-1",
+          "NetIO": "427kB / 200kB",
+          "PIDs": "7"
+        },
+        {
+          "BlockIO": "65.1MB / 164kB",
+          "CPUPerc": "2.86%",
+          "Container": "airflow-platform-airflow-scheduler-1",
+          "ID": "1bd41893592d",
+          "MemPerc": "26.90%",
+          "MemUsage": "275.4MiB / 1GiB",
+          "Name": "airflow-platform-airflow-scheduler-1",
+          "NetIO": "4.14MB / 4.96MB",
+          "PIDs": "9"
+        },
+        {
+          "BlockIO": "49.1MB / 0B",
+          "CPUPerc": "1.12%",
+          "Container": "airflow-platform-airflow-dag-processor-1",
+          "ID": "c398e343b5c1",
+          "MemPerc": "43.16%",
+          "MemUsage": "221MiB / 512MiB",
+          "Name": "airflow-platform-airflow-dag-processor-1",
+          "NetIO": "1.09MB / 1.15MB",
+          "PIDs": "3"
+        },
+        {
+          "BlockIO": "2.77GB / 750MB",
+          "CPUPerc": "0.00%",
+          "Container": "airflow-platform-warehouse-laplaptech-1",
+          "ID": "0d02ace497f6",
+          "MemPerc": "71.16%",
+          "MemUsage": "728.7MiB / 1GiB",
+          "Name": "airflow-platform-warehouse-laplaptech-1",
+          "NetIO": "441kB / 2.13MB",
+          "PIDs": "6"
+        },
+        {
+          "BlockIO": "78.6MB / 0B",
+          "CPUPerc": "0.69%",
+          "Container": "airflow-platform-dashboard-1",
+          "ID": "e0dcb8020980",
+          "MemPerc": "23.61%",
+          "MemUsage": "120.9MiB / 512MiB",
+          "Name": "airflow-platform-dashboard-1",
+          "NetIO": "1.91MB / 42.4kB",
+          "PIDs": "5"
+        }
+      ],
+      "errors": []
+    },
+    "schedule": {
+      "is_paused": false,
+      "next_run_utc": "2026-10-22T09:45:00+00:00",
+      "timezone": "Asia/Ho_Chi_Minh",
+      "cron": [
+        "15 8 * * *",
+        "45 16 * * *"
+      ]
+    },
+    "incremental_pipeline_and_dbt_tests": true,
+    "runtime_identity_lock_and_reconciliation": {
+      "reconciliation": {
+        "schema_counts": {
+          "raw": 6,
+          "public_bronze": 6,
+          "public_silver": 13,
+          "public_gold": 12
+        },
+        "row_counts": {
+          "public_bronze.bronze_brand": 20,
+          "public_bronze.bronze_cpu_model": 90,
+          "public_bronze.bronze_gpu_model": 57,
+          "public_bronze.bronze_laptop_benchmark_result": 7,
+          "public_bronze.bronze_laptop_model": 164,
+          "public_bronze.bronze_user_event_tracking": 785212,
+          "public_gold.gold_battery_vs_interest": 155,
+          "public_gold.gold_behavior_funnel_daily": 645,
+          "public_gold.gold_brand_comparison": 89,
+          "public_gold.gold_brand_interest": 14,
+          "public_gold.gold_cpu_trend": 1808,
+          "public_gold.gold_daily_site_kpis": 645,
+          "public_gold.gold_gpu_trend": 1571,
+          "public_gold.gold_performance_efficiency": 5,
+          "public_gold.gold_performance_ranking": 155,
+          "public_gold.gold_search_analytics": 35647,
+          "public_gold.gold_spec_popularity": 151,
+          "public_gold.gold_user_os": 11,
+          "public_silver.silver_brand": 20,
+          "public_silver.silver_comparison_event_device": 45816,
+          "public_silver.silver_comparison_session_device": 30291,
+          "public_silver.silver_comparison_sort_event": 3527,
+          "public_silver.silver_cpu_model": 90,
+          "public_silver.silver_device_traffic_event": 260162,
+          "public_silver.silver_gpu_model": 57,
+          "public_silver.silver_laptop_benchmark_result": 7,
+          "public_silver.silver_laptop_model": 164,
+          "public_silver.silver_session_activity": 88742,
+          "public_silver.silver_session_day": 90354,
+          "public_silver.silver_session_funnel": 90354,
+          "public_silver.silver_user_event_tracking": 785212,
+          "raw.brand": 20,
+          "raw.cpu_model": 90,
+          "raw.gpu_model": 57,
+          "raw.laptop_benchmark_result": 7,
+          "raw.laptop_model": 164,
+          "raw.user_event_tracking": 785212
+        },
+        "raw_events": 785212,
+        "silver_events": 785212,
+        "gold_daily_events": 785212,
+        "duplicate_raw_ids": 0,
+        "daily_metric_mismatches": 0
+      },
+      "locked_packages": 85,
+      "uid": 10001,
+      "source_hashes": {
+        "/app/scripts/run_airflow_stage.py": "98455cb0f2f8c2f6c88516f745fd57564f33e4606a58b4eba200f508d61f7904",
+        "/app/requirements.lock.txt": "bea5ca2d8648d300aa31460330fd8629a9a8c903d25890a9bb7d828637e3f61f"
+      }
+    },
+    "dashboard_no_source_credentials": true,
+    "http_and_dashboard_database_health": true,
+    "dashboard_app_test_live_gold": {
+      "tabs": 5,
+      "today_and_all_available": true,
+      "literal_search": true,
+      "exceptions": 0
+    },
+    "runtime_dependencies": "No broken requirements found.",
+    "airflow-scheduler_dependencies": "No broken requirements found.",
+    "dashboard_dependencies": "No broken requirements found."
+  },
+  "status": "success",
+  "services": {
+    "airflow-platform-metadata-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d"
+    },
+    "airflow-platform-warehouse-laplaptech-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d"
+    },
+    "airflow-platform-airflow-api-server-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:0acd43451b020abb984d57bdc6f16c26919cf393a7594fabb7c81888893df19b"
+    },
+    "airflow-platform-airflow-scheduler-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:0acd43451b020abb984d57bdc6f16c26919cf393a7594fabb7c81888893df19b"
+    },
+    "airflow-platform-airflow-dag-processor-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:0acd43451b020abb984d57bdc6f16c26919cf393a7594fabb7c81888893df19b"
+    },
+    "airflow-platform-dashboard-1": {
+      "state": "running",
+      "health": "healthy",
+      "image_id": "sha256:bd5f2d2347d7e0788f1e8cf6e483f04d60b54b0403cd5eecd4d6275fea36cf6b"
+    }
+  },
+  "pipeline_run": {
+    "run_id": "system_check_20261022T035328767008Z",
+    "state": "success",
+    "tasks": [
+      {
+        "task_id": "build",
+        "state": "success",
+        "try_number": 1
+      },
+      {
+        "task_id": "freshness",
+        "state": "success",
+        "try_number": 1
+      },
+      {
+        "task_id": "ingest",
+        "state": "success",
+        "try_number": 1
+      },
+      {
+        "task_id": "reconcile",
+        "state": "success",
+        "try_number": 1
+      }
+    ],
+    "stages": {
+      "ingest": {
+        "run_id": "system_check_20261022T035328767008Z",
+        "stage": "ingest",
+        "attempt": 1,
+        "started_at": "2026-10-22T03:53:36.243421+00:00",
+        "status": "success",
+        "exit_code": 0,
+        "resource_limits": {
+          "memory.max": "2147483648",
+          "cpu.max": "200000 100000",
+          "pids.max": "256"
+        },
+        "finished_at": "2026-10-22T03:53:39.884724+00:00",
+        "artifact_path": "/artifacts/b0100aa44db9672b83d1/ingest/attempt-1-ccd07219"
+      },
+      "freshness": {
+        "run_id": "system_check_20261022T035328767008Z",
+        "stage": "freshness",
+        "attempt": 1,
+        "started_at": "2026-10-22T03:53:42.338095+00:00",
+        "status": "success",
+        "exit_code": 0,
+        "resource_limits": {
+          "memory.max": "536870912",
+          "cpu.max": "100000 100000",
+          "pids.max": "256"
+        },
+        "finished_at": "2026-10-22T03:53:47.869505+00:00",
+        "artifact_path": "/artifacts/b0100aa44db9672b83d1/freshness/attempt-1-92d5669d",
+        "source_status_counts": {
+          "pass": 1
+        }
+      },
+      "build": {
+        "run_id": "system_check_20261022T035328767008Z",
+        "stage": "build",
+        "attempt": 1,
+        "started_at": "2026-10-22T03:53:50.767476+00:00",
+        "status": "success",
+        "exit_code": 0,
+        "resource_limits": {
+          "memory.max": "1073741824",
+          "cpu.max": "100000 100000",
+          "pids.max": "256"
+        },
+        "finished_at": "2026-10-22T03:54:21.852470+00:00",
+        "artifact_path": "/artifacts/b0100aa44db9672b83d1/build/attempt-1-9fa0ae44",
+        "dbt_status_counts": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "full_refresh": false
+      },
+      "reconcile": {
+        "run_id": "system_check_20261022T035328767008Z",
+        "stage": "reconcile",
+        "attempt": 1,
+        "started_at": "2026-10-22T03:54:24.185036+00:00",
+        "status": "success",
+        "exit_code": 0,
+        "resource_limits": {
+          "memory.max": "536870912",
+          "cpu.max": "100000 100000",
+          "pids.max": "256"
+        },
+        "reconciliation": {
+          "schema_counts": {
+            "raw": 6,
+            "public_bronze": 6,
+            "public_silver": 13,
+            "public_gold": 12
+          },
+          "row_counts": {
+            "public_bronze.bronze_brand": 20,
+            "public_bronze.bronze_cpu_model": 90,
+            "public_bronze.bronze_gpu_model": 57,
+            "public_bronze.bronze_laptop_benchmark_result": 7,
+            "public_bronze.bronze_laptop_model": 164,
+            "public_bronze.bronze_user_event_tracking": 785212,
+            "public_gold.gold_battery_vs_interest": 155,
+            "public_gold.gold_behavior_funnel_daily": 645,
+            "public_gold.gold_brand_comparison": 89,
+            "public_gold.gold_brand_interest": 14,
+            "public_gold.gold_cpu_trend": 1808,
+            "public_gold.gold_daily_site_kpis": 645,
+            "public_gold.gold_gpu_trend": 1571,
+            "public_gold.gold_performance_efficiency": 5,
+            "public_gold.gold_performance_ranking": 155,
+            "public_gold.gold_search_analytics": 35647,
+            "public_gold.gold_spec_popularity": 151,
+            "public_gold.gold_user_os": 11,
+            "public_silver.silver_brand": 20,
+            "public_silver.silver_comparison_event_device": 45816,
+            "public_silver.silver_comparison_session_device": 30291,
+            "public_silver.silver_comparison_sort_event": 3527,
+            "public_silver.silver_cpu_model": 90,
+            "public_silver.silver_device_traffic_event": 260162,
+            "public_silver.silver_gpu_model": 57,
+            "public_silver.silver_laptop_benchmark_result": 7,
+            "public_silver.silver_laptop_model": 164,
+            "public_silver.silver_session_activity": 88742,
+            "public_silver.silver_session_day": 90354,
+            "public_silver.silver_session_funnel": 90354,
+            "public_silver.silver_user_event_tracking": 785212,
+            "raw.brand": 20,
+            "raw.cpu_model": 90,
+            "raw.gpu_model": 57,
+            "raw.laptop_benchmark_result": 7,
+            "raw.laptop_model": 164,
+            "raw.user_event_tracking": 785212
+          },
+          "raw_events": 785212,
+          "silver_events": 785212,
+          "gold_daily_events": 785212,
+          "duplicate_raw_ids": 0,
+          "daily_metric_mismatches": 0
+        },
+        "finished_at": "2026-10-22T03:54:28.348746+00:00",
+        "artifact_path": "/artifacts/b0100aa44db9672b83d1/reconcile/attempt-1-f1820a9d"
+      }
+    }
+  },
+  "finished_at_utc": "2026-10-22T03:54:53.847077+00:00",
+  "host_configuration": {
+    "wsl_restart_pending": false,
+    "requested_memory_mib": 8192,
+    "engine_memory_bytes": 8327909376,
+    "effective_processors": 6,
+    "swap_total_kib": 2097152,
+    "note": "8 GiB configured; Linux reports less usable memory due to VM/kernel overhead."
+  },
+  "restart": {
+    "graceful_stop": true,
+    "previously_running_containers_restored": 7,
+    "brewlite_db": "restored, healthy",
+    "dag_pause_states_restored": {
+      "laplaptech_pipeline": false,
+      "platform_smoke_test": false
+    },
+    "active_runs_after_verification": 0,
+    "dag_import_errors": 0
+  },
+  "onboarding": {
+    "operational_instructions": "D:/Dev/Project/airflow-platform/AGENTS.md",
+    "canonical_guide": "docs/guides/resources.md",
+    "new_database_or_role_created": false,
+    "note": "Onboarding is documented and bootstrap generates workspace instructions. New repository agents need an explicit reference; no tenant isolation claimed. Existing laplaptech login remains database administrator."
+  },
+  "bootstrap_tests_passed": 7
+}

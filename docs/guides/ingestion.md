@@ -84,4 +84,6 @@ Các bước tạo PostgreSQL test riêng, fixture full build/replay, rollback/c
 
 Lookback hữu hạn không bắt mọi bản nguồn có timestamp quá cũ. Raw không lưu immutable history và chưa đồng bộ source delete bằng CDC. DAG chưa triển khai bounded historical replay. Xem [giới hạn và hướng nâng cấp](../architecture/data_flow.md).
 
-Các kết quả đã chạy được lưu theo ngày trong [validation index](../validation/README.md); không dùng con số lịch sử làm trạng thái realtime.
+Các kết quả đã chạy được liệt kê theo ngày trong [testing guide](testing.md#8-báo-cáo-kiểm-chứng-theo-ngày); không dùng con số lịch sử làm trạng thái realtime.
+
+CLI trên host không chịu Docker cgroup hay pool Airflow. Với dữ liệu thật, ưu tiên task Docker theo [resource policy](resources.md); khi debug CLI cần drain writer và dành đủ RAM cho tiến trình host. Chunk insert không biến extraction DataFrame thành streaming.

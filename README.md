@@ -15,7 +15,7 @@ Pipeline học Data Engineering: đọc ClickHouse public, nạp PostgreSQL, bi�
 | Dashboard | Streamlit Docker, 5 tab sử dụng đủ 12 Gold model |
 | CI | PostgreSQL fixture, full build/replay và Python/AppTest; không cần nguồn thật |
 
-[Báo cáo hệ thống](docs/validation/system_check_2026-10-20.json) và [regression](docs/validation/regression_check_2026-10-20.json) ghi bằng chứng theo ngày/phạm vi, không xác nhận trạng thái realtime. Danh sách report ở [validation](docs/validation/README.md).
+[Báo cáo hệ thống](docs/validation/system_check_2026-10-20.json) và [regression](docs/validation/regression_check_2026-10-20.json) ghi bằng chứng theo ngày/phạm vi, không xác nhận trạng thái realtime. Danh sách report ở [testing guide](docs/guides/testing.md#8-báo-cáo-kiểm-chứng-theo-ngày).
 
 ## 2. Data flow
 
@@ -55,22 +55,25 @@ Dataset public vẫn yêu cầu login: `.env.example` đã có host/user/databas
 
 1. Mở [Airflow](http://localhost:8080), đăng nhập bằng `.env` của **platform**.
 2. Unpause `laplaptech_pipeline`, Trigger với `full_refresh=true` khi cần rebuild Silver từ raw.
-3. Đợi cả bốn task success, rồi mở [dashboard](http://localhost:8501).
+3. Đợi cả bốn task success, bật dashboard theo [Docker guide](docs/guides/docker.md) rồi mở [localhost:8501](http://localhost:8501).
 
-Các lượt thường để `full_refresh=false`. Khi Docker/laptop tắt, lịch ETL và dashboard dừng; CI không chạy ETL thay Airflow. Named volumes giữ dữ liệu qua stop/recreate. Hướng dẫn đầy đủ và đăng nhập PostgreSQL: [Docker](docs/guides/docker.md).
+Các lượt thường để `full_refresh=false`. Khi tạm nghỉ, dùng `.\scripts\Set-LocalStack.ps1 -State Off` từ root repo để tắt Airflow, warehouse và dashboard; `-State On` bật lại Airflow/warehouse, dashboard vẫn bật riêng khi cần. Công tắc này tác động đến toàn bộ Airflow dùng chung, nên khi có project khác tham gia cần kiểm tra run của tất cả project trước khi tắt. Khi Docker/laptop tắt, lịch ETL và dashboard dừng; CI không chạy ETL thay Airflow. Named volumes giữ dữ liệu qua stop/recreate. Hướng dẫn đầy đủ và đăng nhập PostgreSQL: [Docker](docs/guides/docker.md).
 
 ## 4. Hướng dẫn theo công việc
 
-[Mục lục tài liệu](docs/README.md) là điểm bắt đầu duy nhất.
+README này là điểm bắt đầu; chọn đúng hướng dẫn theo công việc dưới đây.
 
 | Bạn muốn làm gì? | Hướng dẫn |
 |---|---|
 | Setup, start/stop, kết nối DB, rebuild và backup | [Docker](docs/guides/docker.md) |
+| Giới hạn RAM/CPU, pool dùng chung và thêm project | [Tài nguyên](docs/guides/resources.md) |
 | Chạy DAG, đọc logs/Assets, hiểu retry và pool | [Airflow](docs/guides/airflow.md) |
 | Run/test/build, source freshness, exposures và dbt docs | [dbt](docs/guides/dbt.md) |
 | Điều tra ingestion, replay và backfill có kiểm soát | [Ingestion](docs/guides/ingestion.md) |
 | Kiểm tra full system, fixture và regression/CI | [Testing](docs/guides/testing.md) |
 | Hiểu Compose, Dockerfiles, mounts và volumes | [Cấu trúc hạ tầng](infra/README.md) |
+
+Nâng cấp để Airflow hiển thị từng dbt model đang để sau; [bản kế hoạch Cosmos](docs/plans/cosmos.md) chưa phải hướng dẫn cho stack hiện hành.
 
 ## 5. Model và giới hạn
 

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "host": {"memory_mib": 8192, "processors": 6, "swap_mib": 2048, "engine_overhead_mib": 512},
+  "headroom_mib": 768,
+  "airflow": {"parallelism": 2, "max_active_tasks_per_dag": 1, "pool": "platform_memory", "pool_slots": 4, "slot_mib": 512},
+  "services": {
+    "metadata": {"memory_mib": 512, "cpus": 0.5},
+    "airflow-api-server": {"memory_mib": 1024, "cpus": 1},
+    "airflow-scheduler": {"memory_mib": 1024, "cpus": 1.5},
+    "airflow-dag-processor": {"memory_mib": 512, "cpus": 1},
+    "airflow-init": {"memory_mib": 1024, "cpus": 1, "transient": true}
+  },
+  "projects": {
+    "laplaptech": {
+      "dbt_threads": 2,
+      "services": {"warehouse": {"memory_mib": 1024, "cpus": 1.5, "compose_service": "warehouse-laplaptech"}, "dashboard": {"memory_mib": 512, "cpus": 0.5, "compose_service": "dashboard", "optional": true}},
+      "tasks": {
+        "ingest": {"memory_mib": 2048, "cpus": 2},
+        "freshness": {"memory_mib": 512, "cpus": 1},
+        "build": {"memory_mib": 1024, "cpus": 1},
+        "reconcile": {"memory_mib": 512, "cpus": 1}
+      }
+    }
+  }
+}

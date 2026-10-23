@@ -39,6 +39,10 @@ def lab_environment() -> dict[str, str]:
         if key.startswith(('POSTGRES_', 'CLICKHOUSE_', 'INGESTION_')) and value is not None:
             env[key] = value
     env['DBT_SEND_ANONYMOUS_USAGE_STATS'] = 'false'
+    threads = config.get('DBT_THREADS', env.get('DBT_THREADS', '2'))
+    if not str(threads).isdigit() or not 1 <= int(threads) <= 16:
+        raise RuntimeError('DBT_THREADS must be an integer from 1 to 16')
+    env['DBT_THREADS'] = str(threads)
     return env
 
 
@@ -153,6 +157,9 @@ def main() -> int:
         'started_at': datetime.now(timezone.utc).isoformat(),
         'status': 'failed', 'exit_code': 1,
     }
+    cgroup = Path('/sys/fs/cgroup')
+    report['resource_limits'] = {name: (cgroup/name).read_text().strip()
+                                 for name in ('memory.max', 'cpu.max', 'pids.max') if (cgroup/name).is_file()}
     try:
         env = lab_environment()
         verify_database(env)  # Read-only target check before every stage.
