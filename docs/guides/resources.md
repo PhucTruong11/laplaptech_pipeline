@@ -95,7 +95,7 @@ Audit dùng Python 3.10+ và Docker CLI, không cần package Python. Bootstrap/
 
 | Thành phần | Địa chỉ/quy ước |
 |---|---|
-| Workspace chung mặc định trên máy này | `D:\Dev\Project\airflow-platform` |
+| Workspace mặc định | Thư mục `airflow-platform` cạnh repository; có thể chọn vị trí khác khi bootstrap |
 | Airflow UI | `http://localhost:8080`; đọc cổng thực tế trong `.env` platform nếu đã đổi |
 | PostgreSQL từ máy host | `127.0.0.1:55434`; thực tế theo `WAREHOUSE_HOST_PORT` |
 | PostgreSQL từ runtime container | `warehouse-laplaptech:5432`, container phải tham gia network `laplaptech-lab` |
@@ -140,21 +140,16 @@ User `laplaptech` hiện là admin khởi tạo PostgreSQL và runtime LaplapTec
 
 ### 5.3. Để project/AI tiếp theo biết cấu hình này
 
-Bootstrap tạo **`airflow-platform/AGENTS.md`** và giữ nguyên nếu file đã có. File này trỏ đến guide hiện tại, resource registry và quy ước database/user/network. Nó chỉ tự áp dụng trong workspace đó; một repo khác không tự đọc file ở thư mục sibling.
+Bootstrap tạo **`airflow-platform/AGENTS.md`** và giữ nguyên nếu đã có.
+Nếu tự vận hành platform nhiều project, đặt kiến trúc/quy ước chung ở workspace
+đó. Trong hướng dẫn local của project mới, ghi vị trí platform, các tài liệu cần
+đọc và database/runtime/DAG/resource riêng. Chỉ tham
+chiếu những tài liệu thực sự có ở platform, không suy ra bootstrap đã tạo đủ
+`ARCHITECTURE.md`/`ONBOARDING.md`.
 
-Khi bắt đầu project mới, đưa đoạn tham chiếu sau vào **AGENTS.md của chính repo mới**, hoặc gửi nguyên nội dung này trong chat setup. Đổi đường dẫn nếu clone ở vị trí khác:
-
-```text
-Project này dùng shared local data platform.
-Trước khi thiết lập Docker/Airflow/PostgreSQL, hãy đọc:
-- D:/Dev/Project/airflow-platform/AGENTS.md
-- D:/Dev/Project/laplaptech_pipeline/docs/guides/resources.md
-- D:/Dev/Project/airflow-platform/resources.json
-Dùng lại Airflow và warehouse PostgreSQL đang có; tạo database/user riêng cho project.
-Giữ nguyên đăng ký, dữ liệu và keys của các project khác.
-Đăng ký RAM/CPU task và dùng BudgetDockerOperator/pool chung trước khi chạy.
-Không lấy credential admin hoặc config volume LaplapTech làm cấu hình project này.
-```
+Đường dẫn máy, đăng ký project cá nhân và chỉ dẫn cho agent dùng riêng nên giữ
+trong file local bị Git ignore hoặc repo platform riêng. Không yêu cầu người
+clone LapLapTech phải có hạ tầng hoặc project khác của người duy trì.
 
 Runtime/entrypoint của project mới phải kiểm tra đúng database/user của chính nó. `scripts/run_airflow_stage.py` của LaplapTech cố ý khóa target LaplapTech; không copy nguyên wrapper này rồi bỏ guard để chạy database khác. Hãy viết wrapper/config riêng và giữ nguyên tắc kiểm tra target trước khi ghi.
 

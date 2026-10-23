@@ -75,7 +75,11 @@ $workspaceReadme = @(
     '',
     'Keep platform .env keys with metadata backups. Edit pipeline source in the repository.'
 )
-[IO.File]::WriteAllLines((Join-Path $PlatformDir 'README.md'), $workspaceReadme, [Text.UTF8Encoding]::new($false))
+# The platform owner maintains architecture/onboarding after initial bootstrap.
+# Preserve its entry point just as we preserve AGENTS.md and resource registrations.
+if (-not (Test-Path -LiteralPath (Join-Path $PlatformDir 'README.md'))) {
+    [IO.File]::WriteAllLines((Join-Path $PlatformDir 'README.md'), $workspaceReadme, [Text.UTF8Encoding]::new($false))
+}
 $integrationFile = Join-Path $PlatformDir 'AGENTS.md'
 # Create a discoverable local contract; never overwrite existing owner instructions.
 if (-not (Test-Path -LiteralPath $integrationFile)) {
