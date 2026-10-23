@@ -1,5 +1,7 @@
 # Kiểm tra hệ thống và regression
 
+**Dùng khi:** sửa code và muốn biết nên chạy test nào, hoặc cần phân biệt kiểm tra stack hiện tại với fixture CI. Nếu chỉ muốn xem dashboard, làm theo [Docker guide](docker.md).
+
 ## 1. Chọn đúng loại kiểm tra
 
 | Nhu cầu | Cách chạy | Đích dữ liệu |
@@ -126,6 +128,6 @@ Lỗi connection refused: kiểm tra readiness/cổng; `28P01`: nhập đúng cr
 
 ## 8. Báo cáo kiểm chứng theo ngày
 
-Các JSON trong [`docs/validation`](../validation/) là snapshot theo thời điểm và phạm vi ghi nhận, không phải health endpoint realtime. Report gần nhất: [BrewLite/resource 22/10](../validation/brewlite_resource_2026-10-22.json), [Docker restart 22/10](../validation/docker_restart_2026-10-22.json), [resource rollout 22/10](../validation/resource_check_2026-10-22.json). Kiểm chứng pipeline và regression: [system check 20/10](../validation/system_check_2026-10-20.json), [regression 20/10](../validation/regression_check_2026-10-20.json), [local cutover 20/10](../validation/local_cutover_2026-10-20.json). Lịch sử dựng Docker và dev: [Airflow setup](../validation/airflow_docker_setup_2026-10-20.json), [dev run 19/10](../validation/dev_run_2026-10-19.json).
+Các JSON trong [`docs/validation`](../validation/) là ảnh chụp kiểm chứng theo ngày, **không phải trạng thái hiện tại**. Đọc [system check](../validation/system_check_2026-10-20.json) và [regression](../validation/regression_check_2026-10-20.json) để xem pipeline đã được kiểm tra ra sao. [Local cutover](../validation/local_cutover_2026-10-20.json) ghi lại lần chuyển warehouse về Docker PostgreSQL; [Docker restart](../validation/docker_restart_2026-10-22.json) ghi kiểm chứng tài nguyên và một lượt pipeline thật sau khi khởi động lại.
 
 Giữ report lịch sử nguyên trạng; tạo report mới khi kiểm tra lại. Không suy ra đã diễn tập restore hoặc đã xóa Neon từ các report local.

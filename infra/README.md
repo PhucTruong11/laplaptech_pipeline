@@ -1,6 +1,6 @@
 # Hạ tầng Docker
 
-Source hạ tầng nằm trong repo; workspace sibling `airflow-platform` chứa cấu hình vận hành và keys riêng trên máy. Cài đặt/start/stop theo [Docker runbook](../docs/guides/docker.md); học DAG theo [Airflow](../docs/guides/airflow.md).
+Source hạ tầng nằm trong repo; workspace sibling `airflow-platform` chứa cấu hình vận hành và keys riêng trên máy. Cài đặt/start/stop theo [Docker runbook](../docs/guides/docker.md); học DAG theo [Airflow](../docs/guides/airflow.md); hiểu cách nhiều project chia sẻ platform ở [kiến trúc dùng chung](../docs/architecture/shared_platform.md).
 
 ## 1. Các file cần đọc
 

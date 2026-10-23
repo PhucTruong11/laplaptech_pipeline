@@ -1,4 +1,6 @@
-# Docker: cài đặt và vận hành toàn hệ thống
+# Docker: cài đặt và vận hành LapLapTech
+
+**Đọc nhanh:** lần đầu làm mục 2 → 3 → 4. Những lần sau dùng mục 5 để bật/tắt. Chỉ xem mục 6–9 khi sửa cấu hình, sao lưu hoặc xử lý lỗi. [Data flow](../architecture/data_flow.md) giải thích hệ thống.
 
 ## 1. Mục đích và cấu hình
 
@@ -6,7 +8,7 @@ ClickHouse public cung cấp dữ liệu; Airflow tạo task container để ing
 
 ### Lệnh nhanh để lưu vào Notepad (máy hiện tại)
 
-Chạy trong PowerShell. Các đường dẫn dưới đây là của máy người duy trì; nếu clone sang máy khác, thay `Set-Location` bằng đường dẫn của bạn. Trước khi tắt Airflow/LapLapTech, đợi mọi DAG run/task đang chạy kết thúc; công tắc `.\scripts\Set-LocalStack.ps1 -State Off` ở mục 5 tự kiểm tra điều này. Lệnh Compose `stop` chỉ dừng container, không xóa database trong named volume.
+Chạy trong PowerShell. Các đường dẫn dưới đây là của máy người duy trì; nếu clone sang máy khác, thay `Set-Location` bằng đường dẫn của bạn. Trước khi dùng lệnh Compose `stop`, kiểm tra và đợi mọi DAG run/task đang chạy kết thúc; lệnh Compose **không tự kiểm tra**. Công tắc `.\scripts\Set-LocalStack.ps1 -State Off` ở mục 5 có kiểm tra an toàn. `stop` không xóa database trong named volume.
 
 ```text
 LapLapTech
@@ -22,29 +24,16 @@ docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --prof
 Set-Location 'D:\Dev\Project\airflow-platform'
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml up -d
 
-- On dashboard sau khi đã On stack Airflow/LapLapTech và dừng BrewLite DB
+- On dashboard sau khi đã On stack Airflow/LapLapTech
 Set-Location 'D:\Dev\Project\airflow-platform'
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard up -d dashboard
 
 - Off riêng dashboard
 Set-Location 'D:\Dev\Project\airflow-platform'
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard stop dashboard
-
-BrewLite
-- Check BrewLite DB
-Set-Location 'D:\Dev\Subject_Uni\SWE\brewlite'
-docker compose -f .\docker\docker-compose.dev.yml ps
-
-- Off BrewLite DB
-Set-Location 'D:\Dev\Subject_Uni\SWE\brewlite'
-docker compose -f .\docker\docker-compose.dev.yml stop db
-
-- On BrewLite DB
-Set-Location 'D:\Dev\Subject_Uni\SWE\brewlite'
-docker compose -f .\docker\docker-compose.dev.yml up -d db
 ```
 
-Airflow là hạ tầng dùng chung: `Off toàn bộ stack` cũng dừng lịch của những project khác khi chúng được nối vào sau này. BrewLite là Compose riêng và hiện chỉ đóng gói PostgreSQL; lệnh BrewLite không bật/tắt web app nếu bạn chạy app bằng terminal riêng. Với ngân sách RAM 8 GiB hiện tại, không bật đồng thời BrewLite DB và dashboard LapLapTech.
+Airflow là hạ tầng dùng chung: `Off toàn bộ stack` cũng dừng lịch của project khác nếu sau này chúng được nối vào platform. Kiểm tra các DAG đang chạy trước khi tắt. Khi bật thêm service trên máy, chạy `python check_resources.py` tại workspace platform để kiểm tra ngân sách RAM.
 
 ### Thành phần và cổng kết nối
 
@@ -137,13 +126,11 @@ Source DAG duy nhất là [`infra/laplaptech/dags/laplaptech_pipeline.py`](../..
 ```powershell
 $platformDir = Join-Path (Split-Path -Path (Get-Location).Path -Parent) 'airflow-platform'
 Set-Location -LiteralPath $platformDir
-# Trên máy người duy trì, dừng brewlite-db trước nếu còn chạy: cả hai service
-# cùng bật sẽ vượt ngân sách RAM khai báo. Người clone không có BrewLite bỏ qua bước này.
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard up -d dashboard
 python check_resources.py
 ```
 
-Khi xem xong, `docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml stop dashboard` trả lại 512 MiB ngân sách cho BrewLite. Nếu cần dùng cả hai liên tục, phải đo tải và phân bổ lại giới hạn trên máy trước; audit sẽ báo lỗi nếu bật cùng lúc với cấu hình hiện tại.
+Khi xem xong, `docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml stop dashboard` trả lại tối đa 512 MiB ngân sách. Nếu audit báo vượt trần do service khác đang chạy, dừng service không cần thiết hoặc đo tải rồi điều chỉnh policy.
 
 Scheduled run mặc định `full_refresh=false`, lịch **08:15 và 16:45**, timezone `Asia/Ho_Chi_Minh`, `catchup=False`. `max_active_runs=1`, `max_active_tasks=1` giới hạn writer của DAG; pool chung `platform_memory` có bốn slot, mỗi task chiếm slot theo RAM. Không chạy ingestion thủ công song song trên cùng warehouse.
 
@@ -193,7 +180,7 @@ docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml exec a
 
 **Checkpoint:** năm service nền healthy; dashboard tùy chọn. Init `Exited (0)` là bình thường; danh sách import errors rỗng. Health không thay cho kiểm chứng DAG/data tests.
 
-Khi nghỉ, từ root repo dùng công tắc dưới đây. `Off` kiểm tra không còn run/task đang chạy rồi dừng **toàn bộ** Compose `airflow-platform`: Airflow dùng chung, metadata PostgreSQL, warehouse LaplapTech và dashboard nếu đã bật. BrewLite thuộc Compose khác nên không bị ảnh hưởng. `On` bật lại Airflow và warehouse; dashboard vẫn tắt.
+Khi nghỉ, từ root repo dùng công tắc dưới đây. `Off` kiểm tra không còn run/task đang chạy rồi dừng **toàn bộ** Compose `airflow-platform`: Airflow dùng chung, metadata PostgreSQL, warehouse LaplapTech và dashboard nếu đã bật. Các Compose project độc lập không bị tác động. `On` bật lại Airflow và warehouse; dashboard vẫn tắt.
 
 ```powershell
 .\scripts\Set-LocalStack.ps1 -State Status

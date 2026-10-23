@@ -1,5 +1,7 @@
 # Chạy và hiểu DAG Airflow
 
+**Dùng khi:** muốn trigger DAG, đọc trạng thái task hoặc sửa lịch/retry. Nếu chỉ cần bật/tắt Docker, xem [Docker guide](docker.md). [Sơ đồ 4 task](../architecture/data_flow.md#1-toàn-hệ-thống-ai-làm-việc-gì) giúp đọc trước phần chi tiết.
+
 ## 1. Điều kiện và vai trò
 
 Stack đã được dựng theo [hướng dẫn Docker](docker.md), Docker Desktop chạy Linux containers và sáu service thường trực healthy. Bài này dùng baseline **Airflow 3.3.2 / Python 3.13 / LocalExecutor**, Docker provider **4.6.1** được pin trong source.

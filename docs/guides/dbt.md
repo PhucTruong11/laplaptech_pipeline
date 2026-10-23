@@ -1,5 +1,7 @@
 # Chạy và phát triển dbt
 
+**Dùng khi:** muốn hiểu hoặc sửa SQL model, chạy `build`/`test`/`source freshness`, xem docs/exposure. Người chỉ muốn chạy pipeline từ đầu nên theo [Docker guide](docker.md); Airflow đã gọi dbt giúp bạn.
+
 ## 1. dbt làm gì trong project?
 
 dbt đọc SQL/Jinja trong repo, sắp dependency bằng `source()`/`ref()`, gửi SQL đến PostgreSQL và chạy data tests. Nó không kéo dữ liệu ClickHouse; ingestion phải nạp `raw` trước. Lịch chạy và retry do [Airflow](airflow.md) quản lý.

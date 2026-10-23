@@ -1,5 +1,7 @@
 # Ingestion: chạy thủ công và backfill
 
+**Dùng khi:** cần chạy lại một khoảng event, kiểm watermark hoặc điều tra raw. Lượt thường ngày đã do Airflow chạy; [sơ đồ ingestion](../architecture/data_flow.md#2-ingestion-dữ-liệu-vào-raw-như-thế-nào) giải thích trước khi thao tác.
+
 ## 1. Mục đích và điều kiện
 
 Luồng thường ngày chạy qua Airflow. Hướng dẫn này dành cho điều tra lỗi hoặc nạp lại một khoảng event; [Docker guide](docker.md) hướng dẫn cài stack và đăng nhập, [data flow](../architecture/data_flow.md) giải thích transaction, watermark và failure path.
