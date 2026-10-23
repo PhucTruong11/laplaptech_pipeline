@@ -4,6 +4,12 @@ x-platform-image: &platform-image
     context: .
     dockerfile: Dockerfile
 
+x-project-guardrails: &project-guardrails
+  pids_limit: 256
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
 services:
   airflow-init:
     <<: *platform-image
@@ -24,7 +30,13 @@ services:
       - ${LAPLAPTECH_PROJECT_DIR:?Set LAPLAPTECH_PROJECT_DIR in platform .env}/infra/laplaptech/dags:/opt/airflow/dags/laplaptech:ro
 
   warehouse-laplaptech:
+    <<: *project-guardrails
     image: postgres:16
+    mem_limit: ${RESOURCE_LAPLAPTECH_WAREHOUSE_MEMORY_MIB:-1024}m
+    memswap_limit: ${RESOURCE_LAPLAPTECH_WAREHOUSE_MEMORY_MIB:-1024}m
+    cpus: ${RESOURCE_LAPLAPTECH_WAREHOUSE_CPUS:-1.5}
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "work_mem=8MB", "-c", "maintenance_work_mem=64MB", "-c", "max_connections=40", "-c", "max_parallel_workers_per_gather=0"]
+    stop_grace_period: 60s
     environment:
       POSTGRES_USER: laplaptech
       POSTGRES_PASSWORD: laplaptech_lab_only
@@ -44,7 +56,12 @@ services:
     restart: unless-stopped
 
   dashboard:
+    <<: *project-guardrails
+    profiles: [dashboard]
     image: laplaptech-dashboard:local-v1
+    mem_limit: ${RESOURCE_LAPLAPTECH_DASHBOARD_MEMORY_MIB:-512}m
+    memswap_limit: ${RESOURCE_LAPLAPTECH_DASHBOARD_MEMORY_MIB:-512}m
+    cpus: ${RESOURCE_LAPLAPTECH_DASHBOARD_CPUS:-0.5}
     build:
       context: ${LAPLAPTECH_PROJECT_DIR:?Set LAPLAPTECH_PROJECT_DIR in platform .env}
       dockerfile: infra/laplaptech/dashboard.Dockerfile
@@ -57,6 +74,9 @@ services:
       POSTGRES_SSLMODE: prefer
       GOLD_SCHEMA: public_gold
       DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     networks:
       - laplaptech-lab
     ports:

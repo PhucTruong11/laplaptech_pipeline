@@ -25,11 +25,11 @@ Cả hai Compose file phải được dùng cùng nhau. Base riêng không chứ
 |---|---|
 | `airflow-platform:3.3.2-docker4.6.1-py3.13` | API/scheduler/DAG processor/init dùng cùng core/provider |
 | `laplaptech-runtime:local-v1` | Container task riêng được scheduler tạo qua Docker Engine |
-| `laplaptech-dashboard:local-v1` | Dashboard thường trực, đọc đủ 12 Gold relations |
+| `laplaptech-dashboard:local-v1` | Dashboard bật khi cần qua Compose profile, đọc đủ 12 Gold relations |
 | `postgres:16` / `metadata` | Database `airflow_meta` giữ state/config Airflow |
 | `postgres:16` / `warehouse-laplaptech` | Database `laplaptech_pipeline_dev` giữ raw/Bronze/Silver/Gold |
 
-Có sáu service thường trực; `airflow-init` thoát code 0 sau khởi tạo là bình thường. Task container chỉ tồn tại khi chạy task, tự xóa sau kết thúc. Airflow dùng LocalExecutor, không có worker/Celery/Redis riêng trong cấu hình này.
+Có năm service nền; dashboard bật riêng qua Compose profile `dashboard`. `airflow-init` thoát code 0 sau khởi tạo là bình thường. Task container chỉ tồn tại khi chạy task, tự xóa sau kết thúc. Airflow dùng LocalExecutor, không có worker/Celery/Redis riêng trong cấu hình này.
 
 ## 3. Cấu hình và source mount
 
@@ -43,7 +43,7 @@ Bootstrap chỉ nhập nhóm `CLICKHOUSE_*`/`INGESTION_*` từ file nguồn; kh�
 
 `LAPLAPTECH_PROJECT_DIR` trỏ repo; Compose bind mount `infra/laplaptech/dags` read-only vào `/opt/airflow/dags/laplaptech` của API/scheduler/DAG processor. Sửa DAG trong repo rồi đợi parse, không copy file Python trùng ID sang platform.
 
-Sửa ingestion/dbt/stage entrypoint cần rebuild runtime; sửa app cần rebuild dashboard. Bootstrap tạm pause DAG khi cập nhật, chặn active run/orphan task và giữ keys. Lỗi sau khi bắt đầu cập nhật sẽ giữ DAG paused để xử lý; xem [Docker](../docs/guides/docker.md) trước khi thao tác.
+Sửa ingestion/dbt/stage entrypoint cần rebuild runtime; sửa app cần rebuild dashboard. Bootstrap tạm pause mọi DAG đang bật và kiểm tra active runs toàn platform khi cập nhật, chặn active run/orphan task và giữ keys. Lỗi sau khi bắt đầu cập nhật sẽ giữ DAG paused để xử lý; xem [Docker](../docs/guides/docker.md) trước khi thao tác.
 
 ## 4. Network, cổng và dữ liệu bền vững
 
@@ -62,10 +62,16 @@ Sửa ingestion/dbt/stage entrypoint cần rebuild runtime; sửa app cần rebu
 
 Scheduler được cấp Docker socket để tạo runtime trên máy local tin cậy. API/DAG processor không nhận socket. Config volume chỉ đọc và dataset không qua XCom; dashboard không được cấp source ClickHouse credentials.
 
-`stop`/recreate không tự xóa named volumes. Giữ `.env`/Fernet key cùng metadata backup; không dùng xóa volume như cách xử lý lỗi đăng nhập. Các project khác có thể dùng chung platform nhưng phải tách DAG ID/runtime/network/pool/config; shared UI/metadata không phải tenant isolation.
+`stop`/recreate không tự xóa named volumes. Giữ `.env`/Fernet key cùng metadata backup; không dùng xóa volume như cách xử lý lỗi đăng nhập. Các project khác có thể dùng chung platform nhưng phải tách DAG ID/runtime/network/config, dùng chung pool ngân sách RAM; shared UI/metadata không phải tenant isolation.
 
 ## 5. Giới hạn và kiểm chứng
 
 Baseline Airflow/provider được pin; base Python/PostgreSQL vẫn là tags, chưa pin image digest. Bootstrap đã kiểm chứng trên Windows Docker Desktop/workspace hiện có; fresh-machine, native Linux/socket GID, nâng major và restore drill có phạm vi kiểm tra riêng.
 
-[Testing](../docs/guides/testing.md) giải thích cách kiểm tra lại; [validation](../docs/validation/README.md) giữ bằng chứng theo ngày. Docker tắt thì local ETL/dashboard dừng; GitHub CI không thay scheduler.
+[Testing](../docs/guides/testing.md) giải thích cách kiểm tra lại và liệt kê bằng chứng theo ngày. Docker tắt thì local ETL/dashboard dừng; GitHub CI không thay scheduler.
+
+## 6. Tài nguyên dùng chung
+
+`airflow-platform/resources.json` khai báo ngân sách host, service và task cho nhiều project. `Configure-Resources.ps1` kiểm tra ngân sách/sinh biến Compose; `check_resources.py` audit giới hạn thực tế. `dags/budget_docker.py` và `platform_resource_policy.py` là operator/policy helper dùng chung. Bootstrap giữ policy vận hành đã có, mount read-only vào Airflow và đồng bộ pool `platform_memory`. Xem [runbook tài nguyên](../docs/guides/resources.md) cho cấu hình WSL, thêm project và giới hạn của phép tính ngân sách.
+
+Workspace vận hành có `AGENTS.md` hướng dẫn tích hợp. Repo mới cần AGENTS/README của chính nó trỏ đến file đó và [hợp đồng tích hợp](../docs/guides/resources.md#5-thêm-project-tiếp-theo); agent trong repo khác không tự biết cấu hình sibling. PostgreSQL warehouse dùng chung server, mỗi project thêm database/login riêng; metadata Airflow vẫn tách biệt.

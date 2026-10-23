@@ -1,7 +1,14 @@
 # Shared Airflow infrastructure. See docs/guides/airflow.md in the repository.
 name: airflow-platform
 
+x-guardrails: &guardrails
+  pids_limit: 512
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
 x-airflow-common: &airflow-common
+  <<: *guardrails
   image: apache/airflow:3.3.2-python3.13
   user: "${AIRFLOW_UID:-50000}:0"
   environment: &airflow-environment
@@ -15,9 +22,13 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Ho_Chi_Minh
-    AIRFLOW__CORE__PARALLELISM: "2"
-    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: "2"
+    AIRFLOW__CORE__PARALLELISM: ${RESOURCE_AIRFLOW_PARALLELISM:-2}
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: ${RESOURCE_AIRFLOW_MAX_TASKS_PER_DAG:-1}
+    AIRFLOW__API__WORKERS: "1"
+    AIRFLOW__DAG_PROCESSOR__PARSING_PROCESSES: "1"
+    AIRFLOW_RESOURCE_POLICY: /opt/airflow/resources.json
   volumes:
+    - ./resources.json:/opt/airflow/resources.json:ro
     - ./dags:/opt/airflow/dags:ro
     - airflow-logs:/opt/airflow/logs
   depends_on:
@@ -29,8 +40,14 @@ x-airflow-common: &airflow-common
 
 services:
   metadata:
+    <<: *guardrails
     # Tracks PostgreSQL 16 patch updates; release distribution will pin a digest.
     image: postgres:16
+    mem_limit: ${RESOURCE_METADATA_MEMORY_MIB:-512}m
+    memswap_limit: ${RESOURCE_METADATA_MEMORY_MIB:-512}m
+    cpus: ${RESOURCE_METADATA_CPUS:-0.5}
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "work_mem=4MB", "-c", "max_connections=50"]
+    stop_grace_period: 60s
     environment:
       POSTGRES_USER: airflow
       POSTGRES_DB: airflow_meta
@@ -47,6 +64,9 @@ services:
 
   airflow-init:
     <<: *airflow-common
+    mem_limit: ${RESOURCE_AIRFLOW_INIT_MEMORY_MIB:-1024}m
+    memswap_limit: ${RESOURCE_AIRFLOW_INIT_MEMORY_MIB:-1024}m
+    cpus: ${RESOURCE_AIRFLOW_INIT_CPUS:-1}
     user: "0:0"
     entrypoint: /bin/bash
     command:
@@ -70,6 +90,9 @@ services:
 
   airflow-api-server:
     <<: *airflow-common
+    mem_limit: ${RESOURCE_AIRFLOW_API_SERVER_MEMORY_MIB:-1024}m
+    memswap_limit: ${RESOURCE_AIRFLOW_API_SERVER_MEMORY_MIB:-1024}m
+    cpus: ${RESOURCE_AIRFLOW_API_SERVER_CPUS:-1}
     command: api-server
     ports:
       - "127.0.0.1:${AIRFLOW_UI_PORT:-8080}:8080"
@@ -82,6 +105,9 @@ services:
 
   airflow-scheduler:
     <<: *airflow-common
+    mem_limit: ${RESOURCE_AIRFLOW_SCHEDULER_MEMORY_MIB:-1024}m
+    memswap_limit: ${RESOURCE_AIRFLOW_SCHEDULER_MEMORY_MIB:-1024}m
+    cpus: ${RESOURCE_AIRFLOW_SCHEDULER_CPUS:-1.5}
     command: scheduler
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
@@ -92,6 +118,9 @@ services:
 
   airflow-dag-processor:
     <<: *airflow-common
+    mem_limit: ${RESOURCE_AIRFLOW_DAG_PROCESSOR_MEMORY_MIB:-512}m
+    memswap_limit: ${RESOURCE_AIRFLOW_DAG_PROCESSOR_MEMORY_MIB:-512}m
+    cpus: ${RESOURCE_AIRFLOW_DAG_PROCESSOR_CPUS:-1}
     command: dag-processor
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']

@@ -1,6 +1,6 @@
 # Kiến trúc và data flow
 
-Tài liệu này là nguồn giải thích kiến trúc, grain, metric và giới hạn của project. Lệnh thao tác nằm trong [Docker](../guides/docker.md), [Airflow](../guides/airflow.md), [dbt](../guides/dbt.md), [ingestion](../guides/ingestion.md) và [testing](../guides/testing.md). Bắt đầu từ [mục lục tài liệu](../README.md).
+Tài liệu này là nguồn giải thích kiến trúc, grain, metric và giới hạn của project. Lệnh thao tác nằm trong [Docker](../guides/docker.md), [Airflow](../guides/airflow.md), [dbt](../guides/dbt.md), [ingestion](../guides/ingestion.md) và [testing](../guides/testing.md). Bắt đầu từ [README chính](../../README.md).
 
 ## 1. Mục tiêu và luồng tổng thể
 
@@ -18,7 +18,7 @@ LaplapTech là project học Data Engineering với batch hai lần/ngày: đọ
 | Airflow API/UI | Docker, host `localhost:8080` | UI, API và execution API |
 | Scheduler + LocalExecutor | Docker | Lập lịch, chạy task process và yêu cầu Docker Engine tạo runtime container |
 | DAG processor | Docker | Import source DAG được mount read-only từ repo |
-| Python/dbt runtime | Container riêng cho mỗi stage | Ingest, freshness, build và reconcile; UID 10001, giới hạn RAM 2 GB/task |
+| Python/dbt runtime | Container riêng cho mỗi stage | Ingest, freshness, build và reconcile; UID 10001, RAM theo stage 512–2048 MiB và CPU quota |
 | Warehouse PostgreSQL 16 | `warehouse-laplaptech:5432`; host `127.0.0.1:55434` | DB `laplaptech_pipeline_dev`, raw/Bronze/Silver/Gold |
 | Metadata PostgreSQL 16 | `metadata:5432/airflow_meta`, không publish host | DAG/run/task state, user và cấu hình Airflow |
 | Streamlit | Docker, host `localhost:8501` | Đọc đủ 12 Gold model, cache query 300 giây |
@@ -26,7 +26,7 @@ LaplapTech là project học Data Engineering với batch hai lần/ngày: đọ
 
 Control plane và warehouse có database/volume riêng. Config task là read-only volume; artifacts và Airflow logs ở volume riêng. Dataset không truyền qua XCom. Root `.env` dành host, `.env` platform dành Airflow, config volume dành container; thay file trên host không tự cập nhật volume.
 
-Một platform có thể chạy nhiều project với DAG ID, runtime, config, network và pool riêng. UI/metadata dùng chung không phải tenant isolation. Người clone repo trên Docker Engine khác không thấy DAG hay volume cá nhân của chủ repo. Scheduler có Docker socket nên platform này dành cho máy local tin cậy.
+Một platform có thể chạy nhiều project với DAG ID, runtime, config, network riêng và dùng chung pool ngân sách RAM. UI/metadata dùng chung không phải tenant isolation. Người clone repo trên Docker Engine khác không thấy DAG hay volume cá nhân của chủ repo. Scheduler có Docker socket nên platform này dành cho máy local tin cậy.
 
 ## 3. Điều phối và failure path
 
@@ -39,7 +39,7 @@ flowchart LR
     R --> G["Validated Gold Asset"]
 ```
 
-DAG [`laplaptech_pipeline.py`](../../infra/laplaptech/dags/laplaptech_pipeline.py) dùng timezone `Asia/Ho_Chi_Minh`, `catchup=False`, một active run/task và pool `laplaptech_warehouse` một slot. Khi unpause lần đầu, Airflow có thể tạo lượt mới nhất đã đến hạn. Docker/laptop tắt thì lịch và dashboard dừng; catchup không thay bounded backfill.
+DAG [`laplaptech_pipeline.py`](../../infra/laplaptech/dags/laplaptech_pipeline.py) dùng timezone `Asia/Ho_Chi_Minh`, `catchup=False`, một active run/task và pool RAM chung `platform_memory` bốn slot có trọng số theo task. Khi unpause lần đầu, Airflow có thể tạo lượt mới nhất đã đến hạn. Docker/laptop tắt thì lịch và dashboard dừng; catchup không thay bounded backfill.
 
 | Stage | Điều kiện đi tiếp và xử lý lỗi |
 |---|---|
@@ -52,7 +52,7 @@ Raw Asset phát sau ingest success; validated Gold Asset chỉ phát sau reconci
 
 Stage container tự xóa sau chạy, nhưng task log và report/dbt artifacts theo run/task/attempt còn trên volumes. Runtime [`run_airflow_stage.py`](../../scripts/run_airflow_stage.py) kiểm tra target config và database/user identity trước mỗi stage. Nếu container chưa tạo được, chưa có runtime report; đọc Airflow log để phân biệt.
 
-Bootstrap pause riêng DAG LaplapTech trước khi kiểm tra active runs và giữ pause suốt cập nhật image/config. Thành công khôi phục trạng thái pause cũ; lỗi cập nhật dở dang giữ paused để xử lý. Pool chỉ kiểm soát task dùng pool, không ngăn người tự chạy writer ngoài Airflow.
+Bootstrap pause mọi DAG đang unpaused trên platform trước khi kiểm tra active runs toàn platform và giữ pause suốt cập nhật image/config. Thành công khôi phục trạng thái pause cũ; lỗi cập nhật dở dang giữ paused để xử lý. Pool chỉ kiểm soát task dùng pool, không ngăn người tự chạy writer ngoài Airflow.
 
 ## 4. Ingestion: atomicity, version và replay
 
@@ -126,7 +126,7 @@ CI compile Python, chạy unit/guard/PostgreSQL integration, dbt parse bằng c�
 
 Ngày **20/10/2026**, [system report](../validation/system_check_2026-10-20.json) ghi 784.914 event, raw/Silver/Gold daily totals khớp, 31 model và 47 data tests đạt trong run Airflow mới. [Regression report](../validation/regression_check_2026-10-20.json) ghi fixture full/replay và **43/43 Python tests pass**. Đây là snapshot theo thời điểm report, không phải số row/test cố định cho mọi lượt chạy.
 
-Runtime dùng 85 package pin trong [`requirements.lock.txt`](../../requirements.lock.txt); `.in` ghi intent, `.txt` trỏ lock. Script lock chỉ ghi closure từ môi trường đã resolve/test, không tự resolve version mới; lock chưa có artifact hashes. Base image tags chưa pin digest. Các report lịch sử giữ nguyên ngày/phạm vi tại [validation index](../validation/README.md); không suy ra đã diễn tập restore từ archive đọc được.
+Runtime dùng 85 package pin trong [`requirements.lock.txt`](../../requirements.lock.txt); `.in` ghi intent, `.txt` trỏ lock. Script lock chỉ ghi closure từ môi trường đã resolve/test, không tự resolve version mới; lock chưa có artifact hashes. Base image tags chưa pin digest. Các report lịch sử giữ nguyên ngày/phạm vi tại [testing guide](../guides/testing.md#8-báo-cáo-kiểm-chứng-theo-ngày); không suy ra đã diễn tập restore từ archive đọc được.
 
 ## 8. Hướng nghiên cứu còn lại
 

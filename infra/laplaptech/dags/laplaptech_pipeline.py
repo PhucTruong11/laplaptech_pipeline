@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pendulum
 from airflow.sdk import Asset, DAG, Param
-from airflow.providers.docker.operators.docker import DockerOperator
+from budget_docker import BudgetDockerOperator
 from airflow.timetables.trigger import MultipleCronTriggerTimetable
 from docker.types import Mount
 
@@ -11,8 +11,9 @@ RAW = Asset(name='LaplapTech raw', uri='x-laplaptech://local/raw')
 GOLD = Asset(name='LaplapTech validated Gold', uri='x-laplaptech://local/gold')
 
 
-def pipeline_stage(stage: str, minutes: int, *, retries: int = 1, **kwargs) -> DockerOperator:
-    return DockerOperator(
+def pipeline_stage(stage: str, minutes: int, *, retries: int = 1, **kwargs) -> BudgetDockerOperator:
+    return BudgetDockerOperator(
+        resource_project='laplaptech', resource_stage=stage,
         task_id=stage,
         image='laplaptech-runtime:local-v1',
         command=([stage] if stage != 'build' else
@@ -25,8 +26,8 @@ def pipeline_stage(stage: str, minutes: int, *, retries: int = 1, **kwargs) -> D
         ],
         environment={'PIPELINE_RUN_ID': '{{ run_id }}', 'PIPELINE_ATTEMPT': '{{ ti.try_number }}'},
         labels={'com.laplaptech.project': 'laplaptech', 'com.laplaptech.environment': 'local'},
-        user='10001:10001', mem_limit='2g', force_pull=False,
-        auto_remove='force', do_xcom_push=False, pool='laplaptech_warehouse',
+        user='10001:10001', force_pull=False,
+        auto_remove='force', do_xcom_push=False,
         retries=retries, retry_delay=timedelta(minutes=2),
         execution_timeout=timedelta(minutes=minutes),
         log_opts_max_size='10m', log_opts_max_file='3',

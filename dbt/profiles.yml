@@ -10,4 +10,4 @@ laplaptech_pipeline:
       dbname: "{{ env_var('POSTGRES_DATABASE', 'laplaptech_pipeline') }}"
       sslmode: "{{ env_var('POSTGRES_SSLMODE', 'prefer') }}"
       schema: public
-      threads: 4
+      threads: "{{ env_var('DBT_THREADS', '2') | int }}"

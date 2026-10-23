@@ -29,7 +29,10 @@ function global:docker {
         if ($env:BOOTSTRAP_ORPHAN_TASK -eq '1') { return 'orphan-laplaptech-task' }
         return
     }
-    if ($joined.Contains('SELECT is_paused')) { return $global:FakePause }
+    if ($joined.Contains('SELECT coalesce(json_agg')) {
+        $paused = $global:FakePause -eq 't'
+        return (ConvertTo-Json -InputObject @(@{dag_id='laplaptech_pipeline';is_paused=$paused}, @{dag_id='future_project';is_paused=($env:BOOTSTRAP_OTHER_UNPAUSED -ne '1')}) -Compress)
+    }
     if ($joined.Contains('SELECT count(*) FROM dag_run')) { return $env:BOOTSTRAP_ACTIVE_RUNS }
     if ($arguments -contains 'pause') { $global:FakePause = 't'; return }
     if ($arguments -contains 'unpause') { $global:FakePause = 'f'; return }
@@ -50,7 +53,7 @@ catch {
 
 @unittest.skipUnless(POWERSHELL, 'PowerShell is required for bootstrap control-flow tests')
 class BootstrapCoordinationTests(unittest.TestCase):
-    def invoke_bootstrap(self, *, active_runs=0, initially_paused=False, fail_build=False, orphan_task=False):
+    def invoke_bootstrap(self, *, active_runs=0, initially_paused=False, fail_build=False, orphan_task=False, other_unpaused=False, existing_policy=None):
         temporary = tempfile.TemporaryDirectory(prefix='laplaptech-bootstrap-test-')
         root = Path(temporary.name)
 
@@ -66,6 +69,8 @@ class BootstrapCoordinationTests(unittest.TestCase):
         original_env = 'AIRFLOW_ADMIN_PASSWORD=test-password-preserved\nAIRFLOW_FERNET_KEY=test-key-preserved\n'
         (platform / '.env').write_text(original_env, encoding='utf-8')
         (platform / 'compose.yaml').write_text('# original config\n', encoding='utf-8')
+        if existing_policy is not None:
+            (platform / 'resources.json').write_text(json.dumps(existing_policy), encoding='utf-8')
         source = root / 'source.env'
         source.write_text('CLICKHOUSE_PASSWORD=fake-source-only\n', encoding='utf-8')
         harness = root / 'harness.ps1'
@@ -79,12 +84,16 @@ class BootstrapCoordinationTests(unittest.TestCase):
             BOOTSTRAP_ACTIVE_RUNS=str(active_runs),
             BOOTSTRAP_FAIL_BUILD='1' if fail_build else '0',
             BOOTSTRAP_ORPHAN_TASK='1' if orphan_task else '0',
+            BOOTSTRAP_OTHER_UNPAUSED='1' if other_unpaused else '0',
         )
         result = subprocess.run(
             [POWERSHELL, '-NoLogo', '-NoProfile', '-NonInteractive',
              '-ExecutionPolicy', 'Bypass', '-File', str(harness)],
             env=env, capture_output=True, text=True, timeout=45,
         )
+        if not trace.exists():
+            raise RuntimeError('Bootstrap harness exited before invoking Docker: '
+                               f'{result.stdout[-1200:]} {result.stderr[-1200:]}')
         calls = [json.loads(line) for line in trace.read_text(encoding='utf-8').splitlines()]
         return result, calls, platform, original_env
 
@@ -119,7 +128,7 @@ class BootstrapCoordinationTests(unittest.TestCase):
     def test_partial_update_failure_keeps_project_paused(self):
         result, calls, _, _ = self.invoke_bootstrap(fail_build=True)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn('LaplapTech remains paused', result.stdout)
+        self.assertIn('Platform DAGs remain paused', result.stdout)
         self.assertTrue(any('pause' in call for call in calls))
         self.assertFalse(any('unpause' in call for call in calls))
         self.assertFalse(any(call[0] == 'run' for call in calls))
@@ -136,6 +145,32 @@ class BootstrapCoordinationTests(unittest.TestCase):
         result, calls, _, _ = self.invoke_bootstrap(initially_paused=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(any('pause' in call or 'unpause' in call for call in calls))
+
+    def test_shared_update_drains_and_restores_other_project_schedule(self):
+        result, calls, _, _ = self.invoke_bootstrap(other_unpaused=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        build = next(i for i, call in enumerate(calls) if call[0] == 'build')
+        pauses = [(i, call[-1]) for i, call in enumerate(calls) if 'pause' in call]
+        self.assertEqual({name for _, name in pauses}, {'laplaptech_pipeline', 'future_project'})
+        self.assertTrue(all(i < build for i, _ in pauses))
+        self.assertEqual({call[-1] for call in calls if 'unpause' in call}, {'laplaptech_pipeline', 'future_project'})
+
+    def test_existing_future_project_budget_is_preserved_and_overbudget_blocks_build(self):
+        template = BOOTSTRAP.parents[1] / 'infra/airflow-platform/resources.json'
+        policy = json.loads(template.read_text())
+        policy['projects']['future'] = {'services': {}, 'dbt_threads': 1,
+                                        'tasks': {'transform': {'memory_mib': 512, 'cpus': 0.5}}}
+        result, calls, platform, original = self.invoke_bootstrap(existing_policy=policy)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads((platform / 'resources.json').read_text()), policy)
+        self.assertIn('warehouse-laplaptech:5432', (platform / 'AGENTS.md').read_text())
+        for line in original.splitlines():
+            self.assertIn(line, (platform / '.env').read_text().splitlines())
+        policy['headroom_mib'] = 4096
+        result, calls, _, _ = self.invoke_bootstrap(existing_policy=policy)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('exceeds WSL', result.stdout)
+        self.assertFalse(any(call[0] in {'build', 'run', 'volume', 'compose'} for call in calls))
 
 
 if __name__ == '__main__':

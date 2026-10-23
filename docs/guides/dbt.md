@@ -41,7 +41,7 @@ Sửa SQL/model trong repo **chưa thay code trong image task**. Chạy lại bo
 
 ## 3. Chạy từng stage bằng Docker
 
-Chỉ dùng khi cần điều tra thủ công. Trước hết pause `laplaptech_pipeline` trong Airflow và đợi hết queued/running runs. Các lệnh dưới đây không đi qua pool Airflow nên không chạy song song với writer khác.
+Chỉ dùng khi cần điều tra thủ công. Trước hết pause các DAG đang bật trên platform và đợi hết queued/running runs/task containers. Ghi lại trạng thái để bật lại sau khi hoàn tất. Các lệnh dưới đây không đi qua pool Airflow; chạy tuần tự, trong lúc toàn platform đã drain, để không chiếm thêm ngân sách task. Mẫu stage thủ công dùng tối đa 1 GiB/1 CPU; điều chỉnh theo [policy vận hành](resources.md) khi đổi ngân sách.
 
 Từ **root repo**, sau khi stack/config/artifact volumes đã sẵn sàng:
 
@@ -49,6 +49,8 @@ Từ **root repo**, sau khi stack/config/artifact volumes đã sẵn sàng:
 $runId = 'manual-dbt-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
 $runtime = @(
     'run', '--rm', '--network', 'laplaptech-lab',
+    '--memory', '1024m', '--memory-swap', '1024m', '--cpus', '1', '--pids-limit', '256',
+    '-e', 'DBT_THREADS=2', '-e', 'OMP_NUM_THREADS=1', '-e', 'OPENBLAS_NUM_THREADS=1', '-e', 'MKL_NUM_THREADS=1',
     '--mount', 'type=volume,source=laplaptech-lab-config,target=/run/laplaptech,readonly',
     '--mount', 'type=volume,source=laplaptech-lab-artifacts,target=/artifacts',
     '-e', "PIPELINE_RUN_ID=$runId",
@@ -153,6 +155,8 @@ Từ phiên CLI mục 4, với database đã có raw/models:
 ```
 
 Mở [localhost:8081](http://localhost:8081) để xem lineage/catalog; `Ctrl+C` dừng docs server. Generate tạo tài liệu, không thay lượt build/test. [dbt docs](https://docs.getdbt.com/reference/commands/cmd-docs).
+
+Ảnh đã lưu để tham khảo: [lineage tổng hợp có exposure](../../assets/lineage/laplaptech-dbt-lineage.png) và [DAG xuất từ giao diện dbt](../../assets/lineage/dbt-dag.png). Đây là snapshot; chạy lại `docs generate` để xem graph theo code hiện tại.
 
 | Artifact | Đọc để biết gì? |
 |---|---|
