@@ -26,7 +26,7 @@ Verifier mặc định kiểm tra năm service nền healthy, DAG import errors,
 Nếu chọn workspace platform khác lúc bootstrap, truyền cùng đường dẫn qua `--platform-dir`:
 
 ```powershell
-python scripts/verify_local_stack.py --platform-dir 'D:/Dev/Project/airflow-platform' --output scratch/system-check.json
+python scripts/verify_local_stack.py --platform-dir '../airflow-platform' --output scratch/system-check.json
 ```
 
 **Checkpoint:** exit code 0 và report có `status: success`. Nếu đang có queued/running run, đợi run hoàn tất rồi kiểm tra lại.
@@ -128,6 +128,6 @@ Lỗi connection refused: kiểm tra readiness/cổng; `28P01`: nhập đúng cr
 
 ## 8. Báo cáo kiểm chứng theo ngày
 
-Các JSON trong [`docs/validation`](../validation/) là ảnh chụp kiểm chứng theo ngày, **không phải trạng thái hiện tại**. Đọc [system check](../validation/system_check_2026-10-20.json) và [regression](../validation/regression_check_2026-10-20.json) để xem pipeline đã được kiểm tra ra sao. [Local cutover](../validation/local_cutover_2026-10-20.json) ghi lại lần chuyển warehouse về Docker PostgreSQL; [Docker restart](../validation/docker_restart_2026-10-22.json) ghi kiểm chứng tài nguyên và một lượt pipeline thật sau khi khởi động lại.
+Repo giữ hai report tham khảo: [system check](../validation/system_check_2026-10-20.json) và [regression](../validation/regression_check_2026-10-20.json). Đây là ảnh chụp kiểm chứng theo ngày, **không phải trạng thái hiện tại**. Report thao tác máy cá nhân như migration/cutover hoặc restart Docker được giữ local, không thuộc tài liệu chạy của repo public.
 
 Giữ report lịch sử nguyên trạng; tạo report mới khi kiểm tra lại. Không suy ra đã diễn tập restore hoặc đã xóa Neon từ các report local.

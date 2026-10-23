@@ -43,3 +43,6 @@ data/
 
 logs/
 dbt/.user.yml
+
+# Maintainer-only platform instructions (local machine paths)
+/AGENTS.md

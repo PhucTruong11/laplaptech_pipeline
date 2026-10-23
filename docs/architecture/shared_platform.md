@@ -1,6 +1,15 @@
-# Kiến trúc Airflow platform dùng chung
+# Kiến trúc Docker và Airflow của LapLapTech
 
-Trang này giải thích **hạ tầng điều phối dùng chung**, không phải logic dữ liệu riêng của LapLapTech. Đọc [data flow LapLapTech](data_flow.md) để hiểu ingestion → dbt → dashboard; xem [Docker guide](../guides/docker.md) để chạy và [resource guide](../guides/resources.md) khi thêm project. Mọi số liệu/cấu hình dưới đây đối chiếu với hai Compose file trong repo; workspace `D:/Dev/Project/airflow-platform` là bản vận hành trên máy và có thể chứa cấu hình riêng.
+Tài liệu công khai này giải thích cấu hình trong repository: Airflow, task
+containers, PostgreSQL, network, volumes và giới hạn tài nguyên. Người clone tạo
+stack trên máy của mình theo [Docker guide](../guides/docker.md); không cần truy
+cập hạ tầng của người duy trì.
+
+Đọc [data flow](data_flow.md) để hiểu ingestion → dbt → dashboard. Phần chia sẻ
+platform cho nhiều project là lựa chọn mở rộng, không phải điều kiện để chạy
+LapLapTech. Cấu hình vận hành riêng máy, đăng ký project khác và quy ước nội bộ
+được giữ ngoài repo public. [Resource guide](../guides/resources.md) mô tả policy
+mẫu đi kèm source.
 
 ## 1. Tư duy thiết kế: một control plane, workload riêng
 
@@ -71,7 +80,7 @@ flowchart TB
     WH -.-> B[DB project_b<br/>user project_b_user<br/>tạo khi onboard]
 ```
 
-**Đang chạy:** một container PostgreSQL `metadata` dành riêng Airflow, một container `warehouse-laplaptech` dành dữ liệu LapLapTech. **Quy ước mở rộng:** tái sử dụng *warehouse instance* cho project tin cậy khác, tạo **database và role riêng**; không tạo thêm metadata DB/Airflow instance cho mỗi project. Project có MySQL/MinIO/ClickHouse đặc thù thì tự quản service riêng và chỉ bật khi cần.
+**Cấu hình mặc định trong repo:** một container PostgreSQL `metadata` dành riêng Airflow, một container `warehouse-laplaptech` dành dữ liệu LapLapTech. **Quy ước mở rộng:** tái sử dụng *warehouse instance* cho project tin cậy khác, tạo **database và role riêng**; không tạo thêm metadata DB/Airflow instance cho mỗi project. Project có MySQL/MinIO/ClickHouse đặc thù thì tự quản service riêng và chỉ bật khi cần.
 
 Điểm cần biết trước khi gọi đây là “isolation”: `POSTGRES_USER=laplaptech` trong Compose khởi tạo role quản trị của warehouse. Project mới phải dùng role **không phải superuser** và database riêng; không phát tán credential LapLapTech cho project khác. Nếu muốn quyền tách biệt chặt giữa các project, cần chuyển quyền sở hữu/credential quản trị hiện tại sang role admin riêng và kiểm thử GRANT/REVOKE. Cho đến lúc đó, đây là cách **chia sẻ tài nguyên và quy ước truy cập**, chưa phải biên an ninh production. Các DB vẫn chia CPU/RAM/I/O và cùng ngừng khi warehouse container tắt.
 
@@ -109,7 +118,9 @@ Airflow/warehouse dùng chung tạo ảnh hưởng chéo: trước khi nâng pla
 docker system df -v
 docker volume ls
 docker ps -a --size
-Get-ChildItem 'D:\Dev\Project\airflow-platform\backups' -Directory -ErrorAction SilentlyContinue |
+# Từ root repo, xác định workspace mặc định cạnh repository.
+$platformDir = Join-Path (Split-Path -Path (Get-Location).Path -Parent) 'airflow-platform'
+Get-ChildItem (Join-Path $platformDir 'backups') -Directory -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 10 Name,LastWriteTime
 ```
 

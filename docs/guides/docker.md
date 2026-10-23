@@ -4,32 +4,38 @@
 
 ## 1. Mục đích và cấu hình
 
-ClickHouse public cung cấp dữ liệu; Airflow tạo task container để ingest → freshness → dbt build → reconcile; PostgreSQL local giữ warehouse; Streamlit đọc Gold. GitHub Actions chỉ chạy CI fixture. Thiết kế và lệnh dưới đây đối chiếu source hiện tại; bằng chứng cutover ngày 20/10/2026 nằm trong [report](../validation/local_cutover_2026-10-20.json), không phải trạng thái realtime.
+ClickHouse public cung cấp dữ liệu; Airflow tạo task container để ingest → freshness → dbt build → reconcile; PostgreSQL local giữ warehouse; Streamlit đọc Gold. GitHub Actions chỉ chạy CI fixture. Thiết kế và lệnh dưới đây đối chiếu source hiện tại; [report hệ thống](../validation/system_check_2026-10-20.json) là bằng chứng theo ngày, không phải trạng thái realtime.
 
-### Lệnh nhanh để lưu vào Notepad (máy hiện tại)
+### Lệnh nhanh để lưu vào Notepad
 
-Chạy trong PowerShell. Các đường dẫn dưới đây là của máy người duy trì; nếu clone sang máy khác, thay `Set-Location` bằng đường dẫn của bạn. Trước khi dùng lệnh Compose `stop`, kiểm tra và đợi mọi DAG run/task đang chạy kết thúc; lệnh Compose **không tự kiểm tra**. Công tắc `.\scripts\Set-LocalStack.ps1 -State Off` ở mục 5 có kiểm tra an toàn. `stop` không xóa database trong named volume.
+Chạy trong PowerShell. Từ **root repo**, xác định workspace mặc định một lần; nếu bootstrap ở vị trí khác, đặt `$platformDir` theo vị trí bạn đã chọn:
+
+```powershell
+$platformDir = Join-Path (Split-Path -Path (Get-Location).Path -Parent) 'airflow-platform'
+```
+
+Trước khi dùng lệnh Compose `stop`, kiểm tra và đợi mọi DAG run/task đang chạy kết thúc; lệnh Compose **không tự kiểm tra**. Công tắc `.\scripts\Set-LocalStack.ps1 -State Off` ở mục 5 có kiểm tra an toàn. `stop` không xóa database trong named volume.
 
 ```text
 LapLapTech
 - Check toàn bộ stack, kể cả container đang tắt
-Set-Location 'D:\Dev\Project\airflow-platform'
+Set-Location $platformDir
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard ps -a
 
 - Off toàn bộ stack Docker Airflow/LapLapTech
-Set-Location 'D:\Dev\Project\airflow-platform'
+Set-Location $platformDir
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard stop -t 60
 
 - On Airflow và warehouse LapLapTech; dashboard vẫn tắt
-Set-Location 'D:\Dev\Project\airflow-platform'
+Set-Location $platformDir
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml up -d
 
 - On dashboard sau khi đã On stack Airflow/LapLapTech
-Set-Location 'D:\Dev\Project\airflow-platform'
+Set-Location $platformDir
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard up -d dashboard
 
 - Off riêng dashboard
-Set-Location 'D:\Dev\Project\airflow-platform'
+Set-Location $platformDir
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard stop dashboard
 ```
 
@@ -188,7 +194,7 @@ Khi nghỉ, từ root repo dùng công tắc dưới đây. `Off` kiểm tra kh�
 .\scripts\Set-LocalStack.ps1 -State On
 ```
 
-Nếu đang ở workspace `D:\Dev\Project\airflow-platform`, các lệnh Compose tương đương là:
+Nếu đang ở workspace platform đã chọn, các lệnh Compose tương đương là:
 
 ```powershell
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard stop -t 60

@@ -69,6 +69,7 @@ class BootstrapCoordinationTests(unittest.TestCase):
         original_env = 'AIRFLOW_ADMIN_PASSWORD=test-password-preserved\nAIRFLOW_FERNET_KEY=test-key-preserved\n'
         (platform / '.env').write_text(original_env, encoding='utf-8')
         (platform / 'compose.yaml').write_text('# original config\n', encoding='utf-8')
+        (platform / 'README.md').write_text('# Owner platform architecture and onboarding\n', encoding='utf-8')
         if existing_policy is not None:
             (platform / 'resources.json').write_text(json.dumps(existing_policy), encoding='utf-8')
         source = root / 'source.env'
@@ -124,6 +125,8 @@ class BootstrapCoordinationTests(unittest.TestCase):
         backups = list((platform / 'backups').glob('bootstrap-*/.env'))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_text(encoding='utf-8'), original)
+        self.assertEqual((platform / 'README.md').read_text(encoding='utf-8'),
+                         '# Owner platform architecture and onboarding\n')
 
     def test_partial_update_failure_keeps_project_paused(self):
         result, calls, _, _ = self.invoke_bootstrap(fail_build=True)
