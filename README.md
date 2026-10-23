@@ -2,6 +2,8 @@
 
 Pipeline học Data Engineering: đọc ClickHouse public, nạp PostgreSQL, biến đổi bằng dbt và phục vụ phân tích qua Streamlit. Toàn bộ hệ thống chạy trên Docker local; Airflow điều phối ETL, GitHub Actions kiểm thử code bằng fixture.
 
+**Nếu mới đến repo:** đọc mục 2 để hiểu luồng dữ liệu, làm mục 3 để chạy. Khi đã chạy được, chỉ mở guide đúng với công việc ở mục 4; không cần đọc hết tài liệu trước. Các giới hạn và kế hoạch nâng cấp được ghi riêng để không nhầm với chức năng hiện có.
+
 ## 1. Hệ thống hiện tại
 
 | Thành phần | Cấu hình |
@@ -25,7 +27,7 @@ Airflow tạo các runtime container theo thứ tự `ingest → freshness → b
 
 Ingestion snapshot atomic theo từng bảng cho 5 bảng và dedup/upsert event theo ID/version với lookback 2 giờ. Freshness warn 24 giờ/error 48 giờ. Một task lỗi sẽ chặn downstream; Gold chưa có transaction publish chung cho toàn bộ model.
 
-[Kiến trúc, grain, metric và failure path](docs/architecture/data_flow.md). Nguồn logo của sơ đồ được ghi tại [tool-logos.json](assets/tool-logos.json).
+[Sơ đồ kiến trúc, ingestion, watermark, dbt và cách xử lý lỗi](docs/architecture/data_flow.md) giải thích từng bước bằng Mermaid. Nguồn logo của ảnh tổng quan ở [tool-logos.json](assets/tool-logos.json).
 
 ## 3. Chạy nhanh bằng Docker
 
@@ -61,7 +63,7 @@ Các lượt thường để `full_refresh=false`. Khi tạm nghỉ, dùng `.\sc
 
 ## 4. Hướng dẫn theo công việc
 
-README này là điểm bắt đầu; chọn đúng hướng dẫn theo công việc dưới đây.
+README là điểm bắt đầu. Mỗi guide là tài liệu tra cứu cho **một việc**, không phải bài đọc bắt buộc theo thứ tự.
 
 | Bạn muốn làm gì? | Hướng dẫn |
 |---|---|
@@ -72,8 +74,9 @@ README này là điểm bắt đầu; chọn đúng hướng dẫn theo công vi
 | Điều tra ingestion, replay và backfill có kiểm soát | [Ingestion](docs/guides/ingestion.md) |
 | Kiểm tra full system, fixture và regression/CI | [Testing](docs/guides/testing.md) |
 | Hiểu Compose, Dockerfiles, mounts và volumes | [Cấu trúc hạ tầng](infra/README.md) |
+| Hiểu Airflow/PostgreSQL dùng chung, thêm project, bảo trì và dung lượng ổ | [Kiến trúc platform dùng chung](docs/architecture/shared_platform.md) |
 
-Nâng cấp để Airflow hiển thị từng dbt model đang để sau; [bản kế hoạch Cosmos](docs/plans/cosmos.md) chưa phải hướng dẫn cho stack hiện hành.
+Các việc có thể nâng cấp được xếp ở [roadmap](docs/plans/roadmap.md). [Cosmos plan](docs/plans/cosmos.md) là nhánh nghiên cứu để hiển thị từng dbt model trong Airflow, **chưa có trong stack hiện tại**.
 
 ## 5. Model và giới hạn
 

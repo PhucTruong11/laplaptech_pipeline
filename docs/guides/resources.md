@@ -1,8 +1,10 @@
 # Quản lý RAM/CPU cho Airflow platform dùng chung
 
+**Dùng khi:** muốn biết trần RAM/CPU, bật thêm service hoặc đưa project khác vào Airflow dùng chung. Người chỉ chạy LapLapTech với cấu hình mặc định có thể bỏ qua tài liệu này.
+
 ## 1. Ba lớp quản lý
 
-Một Airflow platform phục vụ nhiều project. Mỗi project có DAG/runtime/config riêng, cùng dùng ngân sách tài nguyên khai báo trong [`resources.json`](../../infra/airflow-platform/resources.json). Không cần dựng thêm scheduler/API/metadata cho mỗi project.
+Một Airflow platform phục vụ nhiều project. Mỗi project có DAG/runtime/config riêng, cùng dùng ngân sách tài nguyên khai báo trong [`resources.json`](../../infra/airflow-platform/resources.json). Không cần dựng thêm scheduler/API/metadata cho mỗi project. Nếu mới học cách chia sẻ platform, đọc [sơ đồ và khái niệm chung](../architecture/shared_platform.md) trước khi sửa policy.
 
 | Lớp | Cơ chế | Tác dụng |
 |---|---|---|
@@ -37,11 +39,9 @@ Baseline được chọn cho máy khoảng 16 GB RAM/18 CPU logic; giữ phần 
 
 Slot của task = `ceil(memory_mib / 512)`. Ingest chiếm cả pool; build có thể chia pool với task nhẹ của project khác. LaplapTech vẫn giữ `max_active_runs=1`, `max_active_tasks=1` để tránh writer chồng nhau. Giới hạn này không bảo vệ writer chạy thủ công ngoài Airflow.
 
-Ngân sách host mặc định: **4096 + 2048 + 768 headroom + 512 VM overhead = 7424 MiB ≤ 8192 MiB**. Dashboard dùng Compose profile `dashboard`; khi bật, nó thêm 512 MiB thành 7936 MiB. Máy vận hành của người duy trì còn đăng ký `brewlite-db` từ Compose project khác ở mức 512 MiB, cũng là service tùy chọn: chạy BrewLite hoặc dashboard riêng lẻ đều thành 7936 MiB; chạy cùng lúc thành 8448 MiB và audit báo vượt trần. Registry mẫu trong repo không tự đăng ký BrewLite cho người clone. Không dùng swap để mở rộng ngân sách task.
+Ngân sách host mặc định: **4096 + 2048 + 768 headroom + 512 VM overhead = 7424 MiB ≤ 8192 MiB**. Dashboard dùng Compose profile `dashboard`; khi bật, ngân sách thành 7936 MiB. Service của project khác trên cùng máy phải được cộng vào ngân sách platform trước khi chạy cùng; mẫu repo không tự đăng ký chúng. Không dùng swap để mở rộng ngân sách task.
 
 Service thuộc project khác được đăng ký trong `external_services` của `airflow-platform/resources.json` với `memory_mib`, `cpus`, `compose_project`, `compose_service` và `optional: true` nếu chỉ bật khi cần. Audit tìm đúng Compose labels rồi kiểm Docker memory/CPU/PID/health. Service tùy chọn chỉ cộng vào tổng khi đang chạy; service thường trực luôn được tính. Một lệnh `docker compose up` thủ công có thể bật hai service đồng thời, vì vậy chạy `python check_resources.py` sau khi bật/tắt và xử lý lỗi ngân sách trước khi chạy task nặng.
-
-Trần BrewLite 512 MiB là mức ban đầu cho database dev, đã xác nhận khởi động và truy vấn được sau recreate. Khi backend/frontend được đóng gói và có tải thực, xem `docker stats brewlite-db` cùng `memory.events` trong container; nếu có OOM hoặc truy vấn chậm do giới hạn, đo lại rồi điều chỉnh toàn bộ ngân sách trước khi tăng riêng service này. Nếu đổi tên Compose project của BrewLite, cập nhật `compose_project` trong registry vận hành để audit tìm đúng container.
 
 dbt mặc định hai thread; BLAS/OMP/MKL một thread. PostgreSQL warehouse đặt `shared_buffers=256MB`, `work_mem=8MB`, `max_connections=40`, tắt parallel worker mỗi gather. `work_mem` tính theo thao tác SQL/connection, không phải tổng bộ nhớ PostgreSQL. Metadata dùng cấu hình nhỏ hơn. Docker log xoay vòng 10 MB × 3; Airflow logs/artifact volumes vẫn cần backup và dọn theo nhu cầu.
 

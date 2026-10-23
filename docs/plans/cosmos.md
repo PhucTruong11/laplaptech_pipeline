@@ -1,5 +1,7 @@
 # Plan và thực hành tích hợp Cosmos
 
+**Tùy chọn, chưa triển khai.** Đây là kế hoạch chuyên sâu sau khi pipeline hiện tại ổn định. Xem [roadmap chung](roadmap.md) để quyết định có cần Cosmos hay không.
+
 ## 1. Trạng thái và mục tiêu
 
 Đây là **kế hoạch triển khai kèm code mẫu**, chưa phải cấu hình Cosmos đã cài/chạy trên stack. Các đường dẫn được ghi là “tạo mới” hiện chưa tồn tại. Chỉ thực hiện bước kế tiếp khi checkpoint của bước trước đạt; các lệnh dưới đây chưa được chạy thay bạn.
