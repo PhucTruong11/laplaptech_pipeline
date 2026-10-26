@@ -46,3 +46,6 @@ dbt/.user.yml
 
 # Maintainer-only platform instructions (local machine paths)
 /AGENTS.md
+
+# Private login reference generated on this machine; contains real credentials.
+/LOCAL_ACCESS.md

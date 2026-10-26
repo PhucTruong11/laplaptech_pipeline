@@ -4,7 +4,7 @@
 
 ## 1. Điều kiện và vai trò
 
-Stack đã được dựng theo [hướng dẫn Docker](docker.md), Docker Desktop chạy Linux containers và sáu service thường trực healthy. Bài này dùng baseline **Airflow 3.3.2 / Python 3.13 / LocalExecutor**, Docker provider **4.6.1** được pin trong source.
+Stack đã được dựng theo [hướng dẫn Docker](docker.md), Docker Desktop chạy Linux containers và năm service nền healthy; dashboard bật riêng khi cần. Bài này dùng baseline **Airflow 3.3.2 / Python 3.13 / LocalExecutor**, Docker provider **4.6.1** được pin trong source.
 
 | Thành phần | Việc thực hiện |
 |---|---|
@@ -26,7 +26,7 @@ Source chuẩn là [`infra/laplaptech/dags/laplaptech_pipeline.py`](../../infra/
 | Nơi làm việc | Nội dung |
 |---|---|
 | Root repo `laplaptech_pipeline` | Sửa DAG, ingestion/dbt, Dockerfiles, tests và tài liệu |
-| Workspace sibling `airflow-platform` | Compose vận hành, `.env` Airflow keys, smoke DAG và backups |
+| Workspace sibling `airflow-platform` | Compose vận hành, `.env` Airflow keys, diagnostic tùy chọn ngoài DAG mount và backups |
 
 Không copy thêm một file Python cùng DAG ID vào workspace platform. Sửa DAG chỉ cần lưu source rồi đợi processor parse; sửa code ingestion/dbt cần rebuild runtime image.
 
@@ -123,17 +123,18 @@ Bootstrap tạm pause mọi DAG đang unpaused trên platform trước active-ru
 
 Nếu thao tác thủ công, pause DAG, đợi hết queued/running runs, rồi mới thay runtime/config; chỉ unpause sau khi kiểm chứng. Không đồng thời chạy ingestion ngoài Airflow; [ingestion](ingestion.md) mô tả recovery/backfill có kiểm soát.
 
-## 7. Bài tập smoke DAG và xử lý lỗi
+## 7. Smoke test tùy chọn và xử lý lỗi
 
-`platform_smoke_test` kiểm tra control plane bằng `prepare_payload → validate_payload`, schedule manual, retry 1 lần sau 15 giây. Nó truyền dict nhỏ qua XCom và không truy cập warehouse.
+`platform_smoke_test` kiểm control plane bằng `prepare_payload → validate_payload`, truyền dict nhỏ qua XCom, không truy cập warehouse. Nó không cần cho lượt pipeline thường ngày và **không còn nằm trong DAG mount mặc định**. Mẫu được giữ tại `diagnostics/platform_smoke_test.py` của platform, hoặc [template standalone](../../infra/airflow-platform/diagnostics/platform_smoke_test.py). Đưa file ra ngoài DAG folder để Airflow deactive; history được giữ, không purge metadata.
 
-1. Trigger smoke trong UI, đợi cả hai task success.
-2. Mở Logs của validate, tìm `Smoke test passed: project=airflow-platform, total=10`.
-3. Xem XCom của prepare để hiểu dữ liệu nhỏ giữa hai task.
-4. Khi không có smoke run active, thử đổi điều kiện `total != 10` thành `total != 11` trong smoke file ở workspace platform; đợi parse rồi trigger để quan sát retry/fail.
-5. Khôi phục điều kiện cũ, đợi parse, chạy lại; có thể dùng Clear để chạy lại task và so sánh các attempt.
+Khi cần kiểm riêng sau một lần nâng cấp, tại **workspace platform**, xác nhận file đích chưa tồn tại rồi opt-in:
 
-Đây là bài tập để tự thực hành; không suy ra đã thử failure/recovery chỉ từ một report success.
+```powershell
+if (Test-Path -LiteralPath 'dags/platform_smoke_test.py') { throw 'Diagnostic is already deployed; inspect it first.' }
+Copy-Item -LiteralPath 'diagnostics/platform_smoke_test.py' -Destination 'dags/platform_smoke_test.py'
+```
+
+Đợi parse, trigger manual và kiểm hai task success. Khi xong, pause smoke, đợi không còn active run rồi xóa đúng bản copy `dags/platform_smoke_test.py`; bản diagnostic vẫn ở ngoài mount. Không dùng nút xóa history nếu chỉ muốn gỡ DAG khỏi deployment. Không suy ra smoke kiểm được quyền warehouse, Docker task hoặc dữ liệu raw → Gold; dùng verifier cho các phần đó.
 
 | Triệu chứng | Nơi kiểm tra |
 |---|---|
@@ -144,3 +145,32 @@ Nếu thao tác thủ công, pause DAG, đợi hết queued/running runs, rồi 
 | Build/reconcile lỗi | `run_results.json`, stage report, DB target và [dbt guide](dbt.md) |
 
 Nâng Airflow cần pin core/provider/Python tương thích, pause/đợi active runs, backup metadata cùng `.env`, thử migration và restore trên môi trường riêng trước. Không chỉ đổi tag trên metadata đã migrate. Tham khảo [upgrade guide baseline 3.3.2](https://airflow.apache.org/docs/apache-airflow/3.3.2/installation/upgrading.html).
+
+## 8. Có cần thêm DAG, task theo tầng hoặc Assets?
+
+Giữ một DAG vận hành hằng ngày cho luồng hiện tại:
+
+```mermaid
+flowchart LR
+    I[ingest: ClickHouse vào raw] --> F[freshness]
+    F --> B[build: dbt models và tests]
+    B --> R[reconcile raw đến Gold]
+    B -.-> M[31 model theo dependency thực tế]
+    I -.-> A1[Raw Asset]
+    R -.-> A2[Validated Gold Asset]
+```
+
+| Ý tưởng | Quyết định hiện tại | Điều kiện để mở rộng |
+|---|---|---|
+| DAG ingestion riêng | Chưa cần; task ingest đã có trong pipeline | Nguồn có lịch/consumer độc lập và đã giải quyết writer coordination |
+| Thêm task build raw | Raw được Python nạp, không phải một tầng dbt cần build lại | Chỉ thêm khi có xử lý raw riêng với hợp đồng/kiểm chứng rõ |
+| Chia build Bronze/Silver/Gold | Chưa tách ba lệnh chỉ để đẹp graph | Cần thiết kế lại test selection: tests đối soát nhiều tầng phải chạy khi đủ model; `dbt build` hiện tự xếp theo dependency |
+| Một task cho từng model | [Cosmos plan](../plans/cosmos.md), để sau recovery/publish Gold | Giữ model graph, tests đa cha, resource pool, artifacts và retry đúng phạm vi |
+| DAG backfill/recovery manual | Hướng nâng cấp hữu ích sau fixture của [roadmap](../plans/roadmap.md) | Validate start/end và dùng chung writer lock với DAG thường/CLI; max_active_runs của hai DAG riêng không tự chặn nhau |
+| Thêm Assets | Giữ hai Assets hiện có | Thêm khi có consumer độc lập cần biết dataset nào đã sẵn sàng; không tạo Asset cho mọi bảng chỉ để tăng số lượng |
+
+Assets hiện là metadata cập nhật khi producer success, không tự thay lịch cron, khóa database hoặc khiến Gold publish atomic. Chưa có DAG nào schedule theo chúng. Sau này có thể cho một DAG báo cáo/ML độc lập consume **validated Gold**, kèm aggregate metadata như run_id, watermark và row count khi có nhu cầu; không đưa credentials/dataset thật vào Asset metadata.
+
+Ưu tiên tiếp theo là lookback/backfill → publish Gold nhất quán. Sau đó mới cân nhắc alert khi fail nếu có kênh thông báo được cấu hình, hoặc Cosmos khi cần retry theo model. Retry, timeout, concurrency, pool, stage artifacts và hai Assets đã có trong DAG hiện hành.
+
+Nguồn: [dbt build và dependency order](https://docs.getdbt.com/reference/commands/build), [Airflow Assets](https://airflow.apache.org/docs/apache-airflow/3.3.2/authoring-and-scheduling/assets.html), [deactivation và history](https://airflow.apache.org/docs/apache-airflow/3.3.2/concepts/dags.html#dag-pausing-deactivation-and-deletion).

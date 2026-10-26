@@ -57,8 +57,8 @@ Airflow là hạ tầng dùng chung: `Off toàn bộ stack` cũng dừng lịch 
 | Host | `127.0.0.1` |
 | Port | `55434` |
 | Database | `laplaptech_pipeline_dev` |
-| User | `laplaptech` |
-| Password local | `laplaptech_lab_only` |
+| User để xem Gold | `laplaptech_dashboard` |
+| Password | Giá trị `LAPLAPTECH_DASHBOARD_PASSWORD` trong `.env` platform, đọc bằng editor local |
 | SSL mode | `prefer` |
 
 ```text
@@ -66,6 +66,8 @@ jdbc:postgresql://127.0.0.1:55434/laplaptech_pipeline_dev
 ```
 
 Tên `_dev` được giữ vì guard kiểm tra chính xác host/database/user của warehouse local. PostgreSQL cũ ở `localhost:5432`, nếu có, là instance khác. Test Connection tới cổng 5432 không xác nhận warehouse Docker đã được cập nhật.
+
+`laplaptech_pipeline` chạy ingestion/dbt, sở hữu đối tượng trong bốn schema của dự án, không phải superuser. Mật khẩu là `LAPLAPTECH_PIPELINE_PASSWORD`. Dashboard chỉ có SELECT trên Gold, không đọc raw và không ghi dữ liệu. `laplaptech` cùng `WAREHOUSE_PASSWORD` dành riêng cho quản trị/backup; không đưa credential này vào app hay task. Bootstrap giữ mật khẩu đã có khi chạy lại.
 
 ## 2. Điều kiện và phạm vi hỗ trợ
 
@@ -97,14 +99,16 @@ if (-not (Test-Path -LiteralPath '.env')) {
     Copy-Item -LiteralPath '.env.example' -Destination '.env'
 }
 # Điền CLICKHOUSE_PASSWORD và kiểm tra login nguồn trong .env bằng editor.
-.\scripts\Start-LocalStack.ps1
+.\scripts\Start-LocalStack.ps1 -InitializePlatform
 ```
 
 **Checkpoint:** script kết thúc thành công, tạo pool RAM dùng chung `platform_memory` bốn slot và báo địa chỉ Airflow. Dashboard được giữ tắt để tiết kiệm RAM; bật riêng sau khi có Gold. Nếu có lỗi, sửa lỗi đầu tiên trước khi chạy lại; không xóa volumes để thử.
 
 Lần đầu chỉ cần Docker bootstrap → đăng nhập Airflow → unpause/trigger → bốn task success → mở dashboard theo mục 4. Không cần chạy thêm `dbt run` hoặc cài dbt lên host. Dùng [dbt guide](dbt.md) khi muốn học/chạy từng lệnh, [testing](testing.md) nếu muốn kiểm thử bằng fixture trước khi dùng nguồn thật.
 
-Bootstrap mặc định dùng workspace sibling `airflow-platform` cạnh thư mục repo. Nó giữ `.env`/keys Airflow đã có, backup cấu hình trước khi cập nhật, build images và nhập **chỉ** `CLICKHOUSE_*`/`INGESTION_*` vào config volume. Target PostgreSQL của task được đặt cố định về warehouse Docker.
+`-InitializePlatform` chỉ chấp nhận thư mục mới/rỗng, dành cho người clone dự án lần đầu. Bootstrap mặc định dùng workspace sibling `airflow-platform`. Nếu đã có platform, chạy `.\scripts\Start-LocalStack.ps1` **không có cờ khởi tạo**: script kiểm tra integration, build hai image của LapLapTech, cấp quyền/nạp config riêng và giữ nguyên Compose, `.gitignore`, operator, registry, keys và hướng dẫn platform. Không tự cập nhật hạ tầng chung từ template trong repo.
+
+Source config chỉ nhập `CLICKHOUSE_*`/`INGESTION_*`. Hai project passwords được sinh một lần trong `.env` platform; config volume chỉ chứa password pipeline, dashboard chỉ nhận password reader. Role và ownership được cập nhật trong một transaction, giới hạn đúng database LapLapTech; không dùng `REASSIGN OWNED` toàn cluster. Schema/tables Gold mới do pipeline tạo tiếp tục cấp SELECT cho dashboard bằng default privileges.
 
 Bootstrap tạm pause mọi DAG đang unpaused trên platform trước khi kiểm tra queued/running runs toàn platform. Nếu vẫn có active run, nó trả trạng thái pause ban đầu rồi dừng; đợi run kết thúc và thử lại. Trong lúc cập nhật, DAG được giữ paused để lịch không tạo writer mới. Thành công sẽ khôi phục trạng thái pause ban đầu. Nếu cập nhật dở dang gặp lỗi, DAG giữ paused: sửa lỗi và chạy lại bootstrap, hoặc kiểm tra cấu hình/runtime rồi chủ động unpause. Platform mới không tự bật DAG.
 
@@ -115,7 +119,7 @@ $platformDir = Join-Path (Split-Path -Path (Get-Location).Path -Parent) 'airflow
 .\scripts\Start-LocalStack.ps1 -PlatformDir $platformDir -WarehousePort 55434 -DashboardPort 8501
 ```
 
-Đổi `WarehousePort` chỉ đổi cổng host; task vẫn dùng port 5432. Nếu chạy Python từ host, cập nhật `POSTGRES_PORT` trong root `.env` tương ứng. Không thay host/port nội bộ của runtime guard.
+Cổng tùy chọn chỉ dùng khi khởi tạo mới bằng `-InitializePlatform`. Với platform đang có, script kiểm tra và giữ nguyên cổng/path đã đăng ký; thay đổi chúng trực tiếp tại platform sau khi review các project dùng chung. Nếu chạy Python từ host, dùng user `laplaptech_pipeline`, password riêng và cập nhật `POSTGRES_PORT` trong root `.env`; không thay host/port nội bộ của runtime guard.
 
 Source DAG duy nhất là [`infra/laplaptech/dags/laplaptech_pipeline.py`](../../infra/laplaptech/dags/laplaptech_pipeline.py). `LAPLAPTECH_PROJECT_DIR` trong `.env` platform trỏ đến repo và mount DAG read-only. Không copy thêm file Python cùng DAG ID vào platform.
 
@@ -216,7 +220,7 @@ Không thêm `-v`/`--volumes` khi dừng thường ngày. Dữ liệu, metadata,
 | Ingestion/dbt/entrypoint | Chạy bootstrap để pause/cập nhật an toàn, hoặc pause DAG và đợi hết active run trước khi rebuild thủ công |
 | Dashboard | Rebuild dashboard từ runtime hiện tại, recreate service |
 | ClickHouse login | Sửa file nguồn rồi chạy lại bootstrap khi không có run active |
-| RAM/CPU, dbt threads, thêm ngân sách project | Drain toàn platform, sửa policy vận hành rồi bootstrap theo [resource guide](resources.md) |
+| RAM/CPU, dbt threads, thêm ngân sách project | Drain toàn platform, áp dụng tại workspace platform theo [resource guide](resources.md); bootstrap chỉ đọc policy đã cấu hình |
 | Airflow encryption/login keys | Giữ cùng metadata; không sinh lại `.env` để xử lý lỗi kết nối |
 
 Cách khuyến nghị sau khi sửa runtime hoặc config là chạy lại bootstrap từ root repo; script giữ các lịch đang bật trên toàn platform paused suốt quá trình rồi khôi phục trạng thái cũ. Nếu rebuild thủ công bằng các lệnh dưới đây, pause DAG và đợi hết queued/running runs trước; chỉ unpause sau khi build/recreate và kiểm tra thành công.
@@ -277,7 +281,7 @@ Get-ChildItem -LiteralPath $backupDir -Force
 | Không tìm thấy `dockerDesktopLinuxEngine`/Docker daemon | Mở Docker Desktop, đợi Engine ready, kiểm tra `docker version` có Server rồi chạy `up -d` |
 | PowerShell báo `running scripts is disabled` | Chạy `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned` trong chính terminal đó rồi chạy lại bootstrap; scope Process chỉ áp dụng cho phiên hiện tại |
 | Port already allocated | Xem `docker ps`; chọn cổng host trống qua bootstrap. Giữ nguyên port nội bộ của service |
-| PostgreSQL `28P01` | Nhập lại user `laplaptech`, password local; bỏ khoảng trắng đầu/cuối và mật khẩu cũ client đã lưu. Kiểm tra JDBC URL dùng đúng 55434/dev DB |
+| PostgreSQL `28P01` | Kiểm đúng role pipeline/dashboard và key tương ứng trong `.env` platform; bỏ mật khẩu cũ client đã lưu. Kiểm JDBC URL dùng đúng 55434/dev DB; không reset mật khẩu admin để chữa kết nối app |
 | Test Connection tới 5432 thành công | Đó có thể là PostgreSQL cũ; dùng đúng 55434 để xem warehouse Docker |
 | Airflow login không dùng được | Đọc `.env` platform thật; đổi `.env.example` không đổi user đã có trong metadata |
 | DAG không thấy/import error | Kiểm tra `LAPLAPTECH_PROJECT_DIR`, source mount, log DAG processor và `dags list-import-errors` |

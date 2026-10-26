@@ -95,6 +95,8 @@ flowchart LR
 
 Ngày/tháng nghiệp vụ dùng `Asia/Ho_Chi_Minh` từ [`business_time.sql`](../../dbt/macros/business_time.sql). `event_timestamp` là thời gian client ghi nhận; `server_timestamp` là thời gian server nhận và là cơ sở watermark/freshness. Dashboard chỉ đọc Gold, không đọc ClickHouse/raw và không có credential nguồn.
 
+Quyền SQL được tách theo chức năng: `laplaptech_pipeline` sở hữu đối tượng raw/Bronze/Silver/Gold trong database dự án để ingest/build; `laplaptech_dashboard` chỉ SELECT Gold. Hai role không phải superuser. Role `laplaptech` giữ riêng cho quản trị/provisioning, không nằm trong config task/dashboard. Gold tạo lại qua dbt vẫn cấp SELECT cho reader bằng default privileges; việc này không thay cơ chế publish dữ liệu đang có.
+
 ## 4. Khi lỗi thì dữ liệu ở trạng thái nào?
 
 ```mermaid

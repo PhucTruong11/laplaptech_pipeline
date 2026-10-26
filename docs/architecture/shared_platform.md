@@ -68,7 +68,7 @@ flowchart LR
 - **Network**: Airflow control plane và metadata dùng Compose network mặc định. Runtime, dashboard, warehouse kết nối qua `laplaptech-lab`; từ container, warehouse là `warehouse-laplaptech:5432`, không phải `localhost`. Đưa project khác vào network chung cho phép kết nối mạng, còn quyền dữ liệu phụ thuộc user/database; network chung tự nó không phải hàng rào bảo mật.
 - **Volume**: `airflow-metadata` giữ state Airflow; `airflow-logs` giữ task logs; `laplaptech-lab-warehouse` giữ PostgreSQL data; `laplaptech-lab-config` giữ env runtime read-only; `laplaptech-lab-artifacts` giữ report/dbt artifacts. Bind mount DAG lấy source từ repo, khác với named volume dữ liệu. `stop`/`up` giữ volumes; `down -v` có thể xóa dữ liệu nên không dùng để tắt thường ngày.
 
-Compose [base](../../infra/airflow-platform/compose.yaml) khai báo control plane; [overlay LapLapTech](../../infra/airflow-platform/compose.laplaptech.yaml) thêm image/provider, mount DAG/socket, warehouse và dashboard. Hai file được ghép trong **một Compose project** `airflow-platform`. Workspace platform sibling chứa `.env`, keys và policy vận hành; repo chứa template/source để người khác clone. Không commit `.env` thật, database dumps, config volume hay mật khẩu Airflow.
+Compose [base](../../infra/airflow-platform/compose.yaml) khai báo control plane; [overlay LapLapTech](../../infra/airflow-platform/compose.laplaptech.yaml) thêm image/provider, mount DAG/socket, warehouse và dashboard. Hai file được ghép trong **một Compose project** `airflow-platform`. Repo chỉ cài template vào thư mục mới/rỗng bằng `-InitializePlatform`; platform đã có giữ nguyên Compose/operator/registry/docs khi bootstrap cập nhật runtime. Không commit `.env` thật, database dumps, config volume hay mật khẩu Airflow.
 
 ## 4. PostgreSQL nào thật sự dùng chung?
 
@@ -76,13 +76,13 @@ Compose [base](../../infra/airflow-platform/compose.yaml) khai báo control plan
 flowchart TB
     META[(Container metadata<br/>DB airflow_meta)]
     WH[(Container warehouse-laplaptech<br/>PostgreSQL 16)]
-    WH --> A[DB laplaptech_pipeline_dev<br/>user laplaptech]
+    WH --> A[DB laplaptech_pipeline_dev<br/>pipeline + dashboard roles]
     WH -.-> B[DB project_b<br/>user project_b_user<br/>tạo khi onboard]
 ```
 
 **Cấu hình mặc định trong repo:** một container PostgreSQL `metadata` dành riêng Airflow, một container `warehouse-laplaptech` dành dữ liệu LapLapTech. **Quy ước mở rộng:** tái sử dụng *warehouse instance* cho project tin cậy khác, tạo **database và role riêng**; không tạo thêm metadata DB/Airflow instance cho mỗi project. Project có MySQL/MinIO/ClickHouse đặc thù thì tự quản service riêng và chỉ bật khi cần.
 
-Điểm cần biết trước khi gọi đây là “isolation”: `POSTGRES_USER=laplaptech` trong Compose khởi tạo role quản trị của warehouse. Project mới phải dùng role **không phải superuser** và database riêng; không phát tán credential LapLapTech cho project khác. Nếu muốn quyền tách biệt chặt giữa các project, cần chuyển quyền sở hữu/credential quản trị hiện tại sang role admin riêng và kiểm thử GRANT/REVOKE. Cho đến lúc đó, đây là cách **chia sẻ tài nguyên và quy ước truy cập**, chưa phải biên an ninh production. Các DB vẫn chia CPU/RAM/I/O và cùng ngừng khi warehouse container tắt.
+Điểm cần biết trước khi gọi đây là “isolation”: `POSTGRES_USER=laplaptech` trong Compose khởi tạo role quản trị của warehouse. Project mới phải dùng role **không phải superuser** và database riêng; không phát tán credential LapLapTech cho project khác. LapLapTech dùng role laplaptech_pipeline sở hữu bốn schema và role laplaptech_dashboard chỉ SELECT Gold; laplaptech chỉ giữ cho quản trị. Cho đến lúc đó, đây là cách **chia sẻ tài nguyên và quy ước truy cập**, chưa phải biên an ninh production. Các DB vẫn chia CPU/RAM/I/O và cùng ngừng khi warehouse container tắt.
 
 ## 5. Onboard một project mới: cái gì chung, cái gì riêng?
 

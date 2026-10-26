@@ -1,6 +1,6 @@
 # Hạ tầng Docker
 
-Source hạ tầng nằm trong repo; workspace sibling `airflow-platform` chứa cấu hình vận hành và keys riêng trên máy. Cài đặt/start/stop theo [Docker runbook](../docs/guides/docker.md); học DAG theo [Airflow](../docs/guides/airflow.md); hiểu cách nhiều project chia sẻ platform ở [kiến trúc dùng chung](../docs/architecture/shared_platform.md).
+`airflow-platform/` là template **chỉ cài lần đầu vào thư mục rỗng** bằng `-InitializePlatform`. Workspace platform đang có là nguồn cấu hình dùng chung; bootstrap không copy đè từ template. Cài đặt/start/stop theo [Docker runbook](../docs/guides/docker.md); học DAG theo [Airflow](../docs/guides/airflow.md); hiểu sharing ở [kiến trúc dùng chung](../docs/architecture/shared_platform.md).
 
 ## 1. Các file cần đọc
 
@@ -13,7 +13,7 @@ Source hạ tầng nằm trong repo; workspace sibling `airflow-platform` chứa
 | [`laplaptech/runtime.Dockerfile`](laplaptech/runtime.Dockerfile) | Python 3.13 + dependency lock + ingestion/dbt/stage entrypoint, UID 10001 |
 | [`laplaptech/dashboard.Dockerfile`](laplaptech/dashboard.Dockerfile) | Mở rộng runtime với Streamlit app và HTTP server port 8501 |
 | [`laplaptech/dags/laplaptech_pipeline.py`](laplaptech/dags/laplaptech_pipeline.py) | Bốn DockerOperator task: ingest → freshness → build → reconcile |
-| [`airflow-platform/dags/platform_smoke_test.py`](airflow-platform/dags/platform_smoke_test.py) | DAG manual kiểm tra control plane, hai task và XCom nhỏ |
+| [`airflow-platform/diagnostics/platform_smoke_test.py`](airflow-platform/diagnostics/platform_smoke_test.py) | Diagnostic tùy chọn khi nâng cấp Airflow; không deploy trong thư mục DAG mặc định |
 | [`../scripts/Start-LocalStack.ps1`](../scripts/Start-LocalStack.ps1) | Build/config/bootstrap, tạo volumes/pool và bảo vệ lịch trong lúc cập nhật |
 | [`../scripts/verify_local_stack.py`](../scripts/verify_local_stack.py) | Kiểm tra services, DAG/data/artifacts, dependency lock và dashboard |
 

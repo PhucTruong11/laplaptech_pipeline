@@ -23,6 +23,11 @@ def main() -> int:
         )
         engine = create_engine(url, connect_args={'connect_timeout': 5})
         with engine.connect() as connection:
+            database, role, admin = connection.execute(text(
+                'SELECT current_database(), current_user, rolsuper FROM pg_roles WHERE rolname=current_user'
+            )).one()
+            if database == 'laplaptech_pipeline_dev' and (role != 'laplaptech_dashboard' or admin):
+                return 1
             tables = set(connection.execute(text(
                 'SELECT table_name FROM information_schema.tables WHERE table_schema=:schema'
             ), {'schema': os.getenv('GOLD_SCHEMA', 'public_gold')}).scalars())

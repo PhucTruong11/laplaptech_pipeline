@@ -58,13 +58,13 @@ dbt mặc định hai thread; BLAS/OMP/MKL một thread. PostgreSQL warehouse đ
 .\Configure-Resources.ps1 -CheckOnly
 ```
 
-Để thay policy đang hoạt động: ghi lại DAG nào đang unpaused, pause chúng và đợi toàn platform hết queued/running runs cùng task containers; sau đó mới sửa `resources.json`. Chạy lại bootstrap từ **root repo** để sinh `.env`, nạp lại `DBT_THREADS` vào config volume, recreate services và đồng bộ pool:
+Để thay policy đang hoạt động: ghi lại lịch, pause và đợi toàn platform hết runs/tasks; sửa `resources.json` tại **workspace platform**, chạy `Configure-Resources.ps1`, review/recreate services và đồng bộ pool theo contract platform. Bootstrap LapLapTech không còn áp dụng template hay sinh lại resource settings chung. Sau khi platform đã được cấu hình, từ root repo nạp lại DBT_THREADS/config riêng:
 
 ```powershell
 .\scripts\Start-LocalStack.ps1
 ```
 
-Nếu bạn đã pause thủ công, bootstrap giữ nguyên trạng thái đó; kiểm tra thành công rồi unpause đúng các DAG đã ghi lại. Nếu bootstrap tự pause, nó khôi phục các DAG trước đó unpaused khi thành công; lỗi giữa cập nhật sẽ giữ paused. Danh sách đã pause được lưu trong `backups/bootstrap-*/previously-unpaused-dags.json` để phục hồi sau lỗi. Không chỉnh pool lớn hơn policy trong UI để giải quyết task queued.
+Nếu bạn đã pause thủ công, bootstrap giữ nguyên trạng thái đó; kiểm tra thành công rồi unpause đúng các DAG đã ghi lại. Nếu bootstrap tự pause, nó khôi phục các DAG trước đó unpaused khi thành công; lỗi giữa cập nhật sẽ giữ paused. Bootstrap lưu danh sách DAG đã pause trong backups/project-update-*/previously-unpaused-dags.json để phục hồi sau lỗi. Không chỉnh pool lớn hơn policy trong UI để giải quyết task queued.
 
 ## 4. Giới hạn Windows/WSL
 
@@ -136,11 +136,11 @@ docker exec -it airflow-platform-warehouse-laplaptech-1 psql -h 127.0.0.1 -U nex
 
 Đưa login riêng vào config project mới. Từ host dùng port publish 55434; từ runtime dùng DNS Docker/5432 như bảng trên. Không dùng `localhost` để runtime container tìm PostgreSQL ở container khác. Mỗi project có tối đa tám kết nối theo mẫu; warehouse hiện có tổng `max_connections=40`, nên không nhân thêm dashboard/kết nối không kiểm soát.
 
-User `laplaptech` hiện là admin khởi tạo PostgreSQL và runtime LaplapTech đang dùng user đó; không chia sẻ login này cho project mới. Database/user riêng giúp phân tách đối tượng và quyền, không tạo tenant isolation tuyệt đối: superuser vẫn có quyền toàn cluster, tài nguyên CPU/RAM cùng được chia sẻ. Database tạo bằng mẫu đã thu hồi quyền PUBLIC; các database cũ cần rà quyền riêng khi thực sự thêm project, không suy ra chúng đã được khóa chỉ vì tạo login mới. [PostgreSQL roles](https://www.postgresql.org/docs/16/sql-createrole.html), [privileges](https://www.postgresql.org/docs/16/ddl-priv.html), [psql](https://www.postgresql.org/docs/16/app-psql.html).
+User `laplaptech` hiện là admin khởi tạo PostgreSQL nhưng runtime hiện dùng laplaptech_pipeline, dashboard dùng laplaptech_dashboard; không chia sẻ login này cho project mới. Database/user riêng giúp phân tách đối tượng và quyền, không tạo tenant isolation tuyệt đối: superuser vẫn có quyền toàn cluster, tài nguyên CPU/RAM cùng được chia sẻ. Database tạo bằng mẫu đã thu hồi quyền PUBLIC; các database cũ cần rà quyền riêng khi thực sự thêm project, không suy ra chúng đã được khóa chỉ vì tạo login mới. [PostgreSQL roles](https://www.postgresql.org/docs/16/sql-createrole.html), [privileges](https://www.postgresql.org/docs/16/ddl-priv.html), [psql](https://www.postgresql.org/docs/16/app-psql.html).
 
 ### 5.3. Để project/AI tiếp theo biết cấu hình này
 
-Bootstrap tạo **`airflow-platform/AGENTS.md`** và giữ nguyên nếu đã có.
+Platform đang có giữ nguyên AGENTS/ARCHITECTURE/ONBOARDING; bootstrap không ghi đè các tài liệu đó.
 Nếu tự vận hành platform nhiều project, đặt kiến trúc/quy ước chung ở workspace
 đó. Trong hướng dẫn local của project mới, ghi vị trí platform, các tài liệu cần
 đọc và database/runtime/DAG/resource riêng. Chỉ tham
@@ -188,7 +188,7 @@ transform = BudgetDockerOperator(
 
 Đây là mẫu tích hợp, chưa chạy được trước khi bạn build image và cấu hình DB/config mounts. Không truyền lại `pool`, `pool_slots`, `mem_limit`, `cpus`: operator lấy chúng từ policy; task chưa đăng ký sẽ fail parse thay vì âm thầm chạy không giới hạn. Đặt timeout, retry và concurrency phù hợp trong DAG riêng.
 
-4. Chạy `-CheckOnly`, cập nhật Compose khi đã drain, đồng bộ pool bằng bootstrap và kiểm tra import errors/audit. Bootstrap hiện quản lý hai Compose file của LaplapTech; overlay project mới phải được đưa vào lệnh triển khai riêng. Nó giữ đăng ký JSON của project khác nhưng không tự deploy overlay/image của chúng.
+4. Chạy `-CheckOnly`, áp dụng Compose/pool trong platform khi đã drain và kiểm tra imports/audit. Bootstrap LapLapTech chỉ đọc hai Compose file đang có, giữ registrations và không tự deploy overlay/image của project khác.
 
 ## 6. Theo dõi và xử lý
 

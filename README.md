@@ -48,10 +48,10 @@ if (-not (Test-Path -LiteralPath '.env')) {
     Copy-Item -LiteralPath '.env.example' -Destination '.env'
 }
 # Mở .env bằng editor, điền CLICKHOUSE_PASSWORD và lưu trước khi chạy.
-.\scripts\Start-LocalStack.ps1
+.\scripts\Start-LocalStack.ps1 -InitializePlatform
 ```
 
-Bootstrap tạo/cập nhật workspace sibling `airflow-platform`, build images và nạp cấu hình nguồn. Keys Airflow hiện có được giữ; target task luôn là PostgreSQL Docker local. Không cần tài khoản Neon.
+`-InitializePlatform` chỉ dùng cho workspace mới/rỗng. Đã có platform thì chạy `.\scripts\Start-LocalStack.ps1` không kèm cờ đó: giữ nguyên cấu hình chung, chỉ cập nhật runtime/config của dự án. Hai login pipeline/dashboard có mật khẩu sinh riêng trong `.env` platform. Không cần tài khoản Neon.
 
 Dataset public vẫn yêu cầu login: `.env.example` đã có host/user/database, còn password phải lấy từ người duy trì dataset/repo. Nếu chưa có credential này thì chưa chạy được ingestion nguồn thật; [testing guide](docs/guides/testing.md) có lựa chọn fixture không cần login ClickHouse.
 

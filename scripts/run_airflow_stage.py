@@ -23,7 +23,7 @@ def lab_environment() -> dict[str, str]:
     expected = {
         'POSTGRES_HOST': 'warehouse-laplaptech',
         'POSTGRES_PORT': '5432',
-        'POSTGRES_USER': 'laplaptech',
+        'POSTGRES_USER': 'laplaptech_pipeline',
         'POSTGRES_DATABASE': 'laplaptech_pipeline_dev',
         'POSTGRES_SSLMODE': 'prefer',
         'POSTGRES_CREATE_DATABASE': 'false',
@@ -57,10 +57,10 @@ def verify_database(env: dict[str, str]) -> None:
     engine = create_engine(url, connect_args={'connect_timeout': 10})
     try:
         with engine.connect() as connection:
-            database, username = connection.execute(
-                text('SELECT current_database(), current_user')
+            database, username, admin = connection.execute(
+                text('SELECT current_database(), current_user, rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls FROM pg_roles WHERE rolname=current_user')
             ).one()
-        if (database, username) != ('laplaptech_pipeline_dev', 'laplaptech'):
+        if (database, username) != ('laplaptech_pipeline_dev', 'laplaptech_pipeline') or admin:
             raise RuntimeError('Lab database identity did not match')
     finally:
         engine.dispose()

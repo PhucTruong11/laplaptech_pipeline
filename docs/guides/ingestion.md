@@ -20,7 +20,7 @@ $dbt = '.\.venv\Scripts\dbt.exe'
 
 | Cấu hình | Giá trị của hệ thống hiện hành |
 |---|---|
-| PostgreSQL trên host | `127.0.0.1:55434/laplaptech_pipeline_dev`, user `laplaptech` |
+| PostgreSQL trên host | `127.0.0.1:55434/laplaptech_pipeline_dev`, user `laplaptech_pipeline` |
 | PostgreSQL trong task | `warehouse-laplaptech:5432/laplaptech_pipeline_dev` |
 | SSL / tạo DB | `POSTGRES_SSLMODE=prefer`, `POSTGRES_CREATE_DATABASE=false`; Compose tạo DB |
 | Lookback | `INGESTION_LOOKBACK_SECONDS=7200`, khớp Silver hiện tại |
