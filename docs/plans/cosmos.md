@@ -112,7 +112,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Runtime base build failed.' }
 $releaseDir = Join-Path (Get-Location).Path 'scratch/cosmos-release-v1'
 if (Test-Path -LiteralPath $releaseDir) { throw 'Use a new release directory or inspect the existing one.' }
 New-Item -ItemType Directory -Path $releaseDir | Out-Null
-docker run --rm --network none --memory 1024m --memory-swap 1024m --cpus 1 --entrypoint dbt --mount "type=bind,source=$releaseDir,target=/out" -e POSTGRES_HOST=warehouse-laplaptech -e POSTGRES_USER=laplaptech -e POSTGRES_PASSWORD=parse_only -e POSTGRES_DATABASE=laplaptech_pipeline_dev laplaptech-runtime:cosmos-base-v1 parse --no-partial-parse --project-dir /app/dbt --profiles-dir /app/dbt --target-path /out --log-path /out/logs
+docker run --rm --network none --memory 1024m --memory-swap 1024m --cpus 1 --entrypoint dbt --mount "type=bind,source=$releaseDir,target=/out" -e POSTGRES_HOST=warehouse-laplaptech -e POSTGRES_USER=laplaptech_pipeline -e POSTGRES_PASSWORD=parse_only -e POSTGRES_DATABASE=laplaptech_pipeline_dev laplaptech-runtime:cosmos-base-v1 parse --no-partial-parse --project-dir /app/dbt --profiles-dir /app/dbt --target-path /out --log-path /out/logs
 if ($LASTEXITCODE -ne 0) { throw 'Manifest parse failed.' }
 ```
 

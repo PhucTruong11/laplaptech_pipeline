@@ -22,7 +22,19 @@ def get_engine():
             database=os.getenv('POSTGRES_DATABASE', 'laplaptech_pipeline'),
             query={'sslmode': os.getenv('POSTGRES_SSLMODE') or 'prefer'},
         )
-    return create_engine(url, pool_pre_ping=True, connect_args={'connect_timeout': 10})
+    engine = create_engine(url, pool_pre_ping=True, pool_size=2, max_overflow=0,
+                           connect_args={'connect_timeout': 10})
+    try:
+        with engine.connect() as conn:
+            database, role, admin = conn.execute(text(
+                'SELECT current_database(), current_user, rolsuper FROM pg_roles WHERE rolname=current_user'
+            )).one()
+        if database == 'laplaptech_pipeline_dev' and (role != 'laplaptech_dashboard' or admin):
+            raise RuntimeError('Dashboard requires its dedicated Gold reader login')
+        return engine
+    except Exception:
+        engine.dispose()
+        raise
 
 
 @st.cache_data(ttl=300)

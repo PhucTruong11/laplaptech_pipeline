@@ -39,7 +39,7 @@ services:
     stop_grace_period: 60s
     environment:
       POSTGRES_USER: laplaptech
-      POSTGRES_PASSWORD: laplaptech_lab_only
+      POSTGRES_PASSWORD: ${WAREHOUSE_PASSWORD:?Initialize platform secrets first}
       POSTGRES_DB: laplaptech_pipeline_dev
     volumes:
       - laplaptech-warehouse:/var/lib/postgresql/data
@@ -68,8 +68,8 @@ services:
     environment:
       POSTGRES_HOST: warehouse-laplaptech
       POSTGRES_PORT: "5432"
-      POSTGRES_USER: laplaptech
-      POSTGRES_PASSWORD: laplaptech_lab_only
+      POSTGRES_USER: laplaptech_dashboard
+      POSTGRES_PASSWORD: ${LAPLAPTECH_DASHBOARD_PASSWORD:?Provision LapLapTech access first}
       POSTGRES_DATABASE: laplaptech_pipeline_dev
       POSTGRES_SSLMODE: prefer
       GOLD_SCHEMA: public_gold

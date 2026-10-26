@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [ValidateRange(1024, 65535)]
-    [int]$UiPort = 8080
+    [int]$UiPort = 8080,
+    [string]$LapLapTechProjectDir = (Join-Path (Split-Path -Parent $PSScriptRoot) 'laplaptech_pipeline'),
+    [int]$WarehousePort = 55434,
+    [int]$DashboardPort = 8501
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,6 +40,13 @@ METADATA_PASSWORD=$(New-RandomHex 24)
 AIRFLOW_FERNET_KEY=$fernetKey
 AIRFLOW_API_SECRET_KEY=$(New-RandomHex 32)
 AIRFLOW_JWT_SECRET=$(New-RandomHex 32)
+WAREHOUSE_PASSWORD=$(New-RandomHex 32)
+LAPLAPTECH_PIPELINE_PASSWORD=$(New-RandomHex 32)
+LAPLAPTECH_DASHBOARD_PASSWORD=$(New-RandomHex 32)
+LAPLAPTECH_PROJECT_DIR=$($LapLapTechProjectDir.Replace('\', '/'))
+WAREHOUSE_HOST_PORT=$WarehousePort
+DASHBOARD_PORT=$DashboardPort
+DOCKER_SOCKET_GID=0
 "@
 
 # CreateNew prevents accidentally replacing keys, even if two invocations overlap.

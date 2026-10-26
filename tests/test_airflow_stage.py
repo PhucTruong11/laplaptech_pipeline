@@ -8,6 +8,13 @@ from scripts import run_airflow_stage as stage
 
 
 class LocalRuntimeTests(unittest.TestCase):
+    def test_legacy_admin_config_is_rejected_before_connection(self):
+        with patch.object(Path, 'is_file', return_value=True), patch.object(stage, 'dotenv_values', return_value={
+            'POSTGRES_HOST':'warehouse-laplaptech','POSTGRES_PORT':'5432','POSTGRES_USER':'laplaptech',
+        }), patch.object(stage, 'create_engine') as engine:
+            with self.assertRaises(RuntimeError):
+                stage.lab_environment()
+            engine.assert_not_called()
     def test_remote_warehouse_is_rejected_before_any_connection(self):
         with patch.object(Path, 'is_file', return_value=True), patch.object(
             stage, 'dotenv_values', return_value={'POSTGRES_HOST': 'example.neon.tech'}
@@ -28,7 +35,7 @@ class LocalRuntimeTests(unittest.TestCase):
     def test_local_target_overrides_shell_and_unrelated_file_keys_are_ignored(self):
         configured = {
             'POSTGRES_HOST': 'warehouse-laplaptech', 'POSTGRES_PORT': '5432',
-            'POSTGRES_USER': 'laplaptech', 'POSTGRES_PASSWORD': 'test-only',
+            'POSTGRES_USER': 'laplaptech_pipeline', 'POSTGRES_PASSWORD': 'test-only',
             'POSTGRES_DATABASE': 'laplaptech_pipeline_dev', 'POSTGRES_SSLMODE': 'prefer',
             'POSTGRES_CREATE_DATABASE': 'false', 'CLICKHOUSE_USER': 'public',
             'UNRELATED_SECRET': 'must-not-copy',
