@@ -97,7 +97,7 @@ text{font-family:"Segoe UI",Arial,Helvetica,sans-serif;fill:#edf4ff}
   <use href="#logo-apacheairflow" x="340" y="270" width="46" height="46" />
   <text x="403" y="301" class="section">Apache Airflow</text>
   <text x="624" y="301" class="body" font-size="21" style="font-size:21px;fill:#c8beff" fill="#c8beff">LocalExecutor</text>
-  <text x="340" y="334" class="body">08:15 + 16:45 VN · catchup off · one active run · RAM pool: 4 slots</text>
+  <text x="340" y="334" class="body">07:00 + 19:00 VN · catchup off · one active run · RAM pool: 4 slots</text>
   <rect x="340" y="355" width="186" height="33" rx="8" fill="#223755" stroke="#425876" />
   <text x="433.0" y="377" class="small" text-anchor="middle" font-size="16" style="font-size:16px;fill:#dce7f8" fill="#dce7f8">API server :8080</text>
   <rect x="542" y="355" width="240" height="33" rx="8" fill="#223755" stroke="#425876" />

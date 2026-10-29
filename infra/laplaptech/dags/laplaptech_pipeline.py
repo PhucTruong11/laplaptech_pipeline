@@ -40,7 +40,7 @@ with DAG(
     description='Public ClickHouse -> local PostgreSQL -> tested and reconciled Gold',
     start_date=pendulum.datetime(2026, 1, 1, tz='Asia/Ho_Chi_Minh'),
     schedule=MultipleCronTriggerTimetable(
-        '15 8 * * *', '45 16 * * *', timezone='Asia/Ho_Chi_Minh', run_immediately=False,
+        '0 7 * * *', '0 19 * * *', timezone='Asia/Ho_Chi_Minh', run_immediately=False,
     ),
     catchup=False, is_paused_upon_creation=True,
     max_active_runs=1, max_active_tasks=1,

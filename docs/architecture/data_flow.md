@@ -1,6 +1,6 @@
 # Data flow và kiến trúc LapLapTech
 
-Tài liệu này giải thích **hệ thống đang có trong code**, đối chiếu ngày 26/10/2026. Đây không phải báo cáo health realtime. Các sơ đồ mô tả luồng điều phối, dữ liệu và ranh giới transaction; chúng không khẳng định cả hệ thống commit trong một lần.
+Tài liệu này giải thích **hệ thống đang có trong code**, đối chiếu ngày 29/10/2026. Đây không phải báo cáo health realtime. Các sơ đồ mô tả luồng điều phối, dữ liệu và ranh giới transaction; chúng không khẳng định cả hệ thống commit trong một lần.
 
 Đọc mục 1 để hiểu Docker/Airflow, mục 2 để hiểu ingestion, mục 3 để hiểu dbt/dashboard, mục 4 để hiểu lỗi và recovery. Các thiết kế **chưa triển khai** nằm ở [roadmap](../plans/roadmap.md), không được xem là chức năng hiện tại. Lệnh thao tác nằm ở [Docker](../guides/docker.md), [Airflow](../guides/airflow.md), [ingestion](../guides/ingestion.md) và [dbt](../guides/dbt.md).
 
@@ -96,7 +96,7 @@ Config và artifacts trong sơ đồ là hai volume riêng: runtime chỉ đọc
 
 ```mermaid
 flowchart TB
-    T["08:15 / 16:45 giờ Việt Nam<br/>hoặc Trigger thủ công"] --> I["ingest"]
+    T["07:00 / 19:00 giờ Việt Nam<br/>hoặc Trigger thủ công"] --> I["ingest"]
     I --> F["freshness"] --> B["build"] --> R["reconcile"]
     I -. "thành công" .-> RAW["Asset: LaplapTech raw"]
     R -. "thành công" .-> GOLD["Asset: validated Gold"]
@@ -214,6 +214,8 @@ flowchart TB
 ```
 
 Lookback raw là `INGESTION_LOOKBACK_SECONDS`, mặc định 7200. Ví dụ MAX raw = 12:00 thì đọc từ 10:00 trở đi. Đọc chồng là chủ đích để nhận event/version nằm trong cửa sổ, rồi dedup ở bước ghi. Timestamp lớn nhất không chứng minh các khoảng phía trước đã đầy đủ.
+
+Khoảng này tính từ MAX đích, không phải từ đồng hồ hiện tại: lịch cách nhau 12 giờ vẫn đọc phần sau watermark của lượt trước. Client event-time cũ nhưng server-received time mới không bị loại vì tuổi client-time. [Kiểm định ngày 29/10](../validation/functional_check_2026-10-29.json) xác nhận các hành vi đó trên fixture; ngoài cửa sổ và recovery còn giới hạn ở mục 2.4.
 
 CLI đã hỗ trợ `--start/--end` với ISO-8601 có timezone và khoảng `[start,end)`, không đọc MAX hiện tại cho event khi chọn chế độ đó. Truyền thiếu một đầu mốc bị từ chối. **Năm dimension vẫn refresh snapshot hiện tại trong cùng lượt backfill**. Xem [hướng dẫn backfill](../guides/ingestion.md#4-backfill-event-theo-khoảng-thời-gian).
 

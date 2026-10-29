@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import run_airflow_stage as stage
+from scripts.verify_local_stack import validated_timetable
 
 
 class LocalRuntimeTests(unittest.TestCase):
@@ -44,6 +45,25 @@ class LocalRuntimeTests(unittest.TestCase):
             env = stage.lab_environment()
         self.assertEqual(env['POSTGRES_HOST'], 'warehouse-laplaptech')
         self.assertNotIn('UNRELATED_SECRET', env)
+
+
+class DeployedScheduleTests(unittest.TestCase):
+    def serialized(self, expressions=None, timezone='Asia/Ho_Chi_Minh'):
+        return {'timetable': {'__type': 'airflow.timetables.trigger.MultipleCronTriggerTimetable',
+                '__var': {'expressions': expressions or ['0 7 * * *', '0 19 * * *'],
+                          'timezone': timezone, 'run_immediately': False}}}
+
+    def test_expected_live_timetable_is_accepted(self):
+        self.assertEqual(validated_timetable(self.serialized())['cron'], ['0 7 * * *', '0 19 * * *'])
+
+    def test_old_live_timetable_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, 'Deployed timetable'):
+            validated_timetable(self.serialized(['15 8 * * *', '45 16 * * *']))
+
+    def test_wrong_timezone_or_missing_timetable_is_rejected(self):
+        for value in (self.serialized(timezone='UTC'), {}):
+            with self.subTest(value=value), self.assertRaises(RuntimeError):
+                validated_timetable(value)
 
 
 if __name__ == '__main__':

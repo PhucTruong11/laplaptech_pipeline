@@ -69,7 +69,7 @@ if pd.isna(latest):
 else:
     latest_vn = latest.tz_convert(VN)
     hours = (datetime.now(VN) - latest_vn.to_pydatetime()).total_seconds() / 3600
-    message = f"Latest received event: {latest_vn:%d %b %Y, %H:%M} VN · batch schedule 08:15 / 16:45 · query cache 5 min"
+    message = f"Latest received event: {latest_vn:%d %b %Y, %H:%M} VN · batch schedule 07:00 / 19:00 · query cache 5 min"
     if hours > 48:
         st.error(message + ' · source events older than 48 hours')
     elif hours > 24:

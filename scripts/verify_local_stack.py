@@ -49,6 +49,20 @@ def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def validated_timetable(serialized: dict) -> dict:
+    """Read the deployed timetable; desired constants alone are not evidence."""
+    timetable = serialized.get('timetable') or {}
+    values = timetable.get('__var', {})
+    expected = ['0 7 * * *', '0 19 * * *']
+    if (timetable.get('__type') != 'airflow.timetables.trigger.MultipleCronTriggerTimetable'
+            or values.get('expressions') != expected
+            or values.get('timezone') != 'Asia/Ho_Chi_Minh'
+            or values.get('run_immediately') is not False):
+        raise RuntimeError('Deployed timetable differs from 07:00/19:00 Vietnam schedule; wait for DAG parsing')
+    return {'timezone': values['timezone'], 'cron': values['expressions'],
+            'serialized_at_utc': serialized.get('last_updated')}
+
+
 def health_snapshot(services: tuple[str, ...]) -> dict:
     details = json.loads(command(['docker', 'inspect', *map(container, services)]))
     return {item['Name'].lstrip('/'): {
@@ -169,8 +183,12 @@ def verify(platform: Path, *, run_pipeline: bool, with_dashboard: bool,
     dag_state = metadata(f"SELECT json_build_object('is_paused',is_paused,'next_run_utc',next_dagrun_create_after) FROM dag WHERE dag_id={sql_literal(DAG_ID)};")
     if not dag_state:
         raise RuntimeError('LaplapTech DAG has not appeared in Airflow')
-    record('schedule', {**json.loads(dag_state), 'timezone': 'Asia/Ho_Chi_Minh',
-                        'cron': ['15 8 * * *', '45 16 * * *']})
+    deployed = metadata(f"""SELECT json_build_object('last_updated',last_updated,
+        'timetable',jsonb_path_query_first(data,'$.**.timetable'))
+        FROM serialized_dag WHERE dag_id={sql_literal(DAG_ID)} ORDER BY last_updated DESC LIMIT 1;""")
+    if not deployed:
+        raise RuntimeError('LaplapTech DAG has no serialized timetable')
+    record('schedule', {**json.loads(dag_state), **validated_timetable(json.loads(deployed))})
     if metadata(f"SELECT count(*) FROM dag_run WHERE dag_id={sql_literal(DAG_ID)} AND state IN ('running','queued');") != '0':
         raise RuntimeError('A run is active; repeat verification after it finishes')
 

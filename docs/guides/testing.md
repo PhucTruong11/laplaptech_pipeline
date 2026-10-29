@@ -130,4 +130,25 @@ Lỗi connection refused: kiểm tra readiness/cổng; `28P01`: nhập đúng cr
 
 Repo giữ hai report tham khảo: [system check](../validation/system_check_2026-10-20.json) và [regression](../validation/regression_check_2026-10-20.json). Đây là ảnh chụp kiểm chứng theo ngày, **không phải trạng thái hiện tại**. Report thao tác máy cá nhân như migration/cutover hoặc restart Docker được giữ local, không thuộc tài liệu chạy của repo public.
 
+[Functional check 29/10/2026](../validation/functional_check_2026-10-29.json) ghi 60 Python tests, fixture build/replay, 15 quan sát late-data và kiểm lịch 07:00/19:00. Report phân biệt hành vi được hỗ trợ với giới hạn đã tái hiện; không phải benchmark throughput hoặc chứng nhận mọi late event đều được bắt.
+
 Giữ report lịch sử nguyên trạng; tạo report mới khi kiểm tra lại. Không suy ra đã diễn tập restore hoặc đã xóa Neon từ các report local.
+
+## 9. Kiểm định lookback và late-arriving data
+
+[assess_late_data.py](../../scripts/assess_late_data.py) dùng source fixture nhưng chạy loader và dbt/PostgreSQL thật. Script chỉ chấp nhận `DEV_DATABASE_URL` tới localhost + `laplaptech_pipeline_test`, qua guard của dev runner. Cờ bắt buộc `--reset-fixture` xóa/recreate bốn schema fixture; chỉ chạy trên DB test dùng riêng cho phiên, không dùng để đánh giá trực tiếp warehouse vận hành.
+
+Chuẩn bị Python/DB test theo mục 3 và gán `DEV_DATABASE_URL` theo mục 4. Khi chạy CLI ngoài pool, cần cửa sổ không có writer cạnh tranh, dừng scheduler sau khi drain và ghi trạng thái để khôi phục. PostgreSQL test cần RAM/CPU cap và host còn đủ RAM; không suy RAM container thấp nghĩa là Windows còn nhiều bộ nhớ.
+
+```powershell
+$assessmentOutput = Join-Path (Get-Location).Path ('scratch/late-data-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'))
+& $python -m scripts.assess_late_data --reset-fixture --output $assessmentOutput
+```
+
+Output phải là thư mục chưa tồn tại. Xem `report.json`, các `builds`/`cases` và artifacts dbt của từng lần build; log console đã che password test. Các case gồm: trong cửa sổ, đúng biên, ngoài cửa sổ, `[start,end)`, backfill + incremental/full rebuild, correction, replay, version cũ/xung đột và raw/Silver lệch lookback. Có thêm event client-time cũ một ngày nhưng server-received time mới.
+
+**Ý nghĩa kết quả:** `supported` là hành vi đã đạt; `limitation_confirmed` là giới hạn cửa sổ đã tái hiện; `limitation_detected_by_test` là chênh lệch được dbt tests phát hiện. Một số build cố ý phải fail `assert_raw_to_silver`, rồi full-refresh phục hồi. Script exit 0 với `completed_with_known_limitations` chỉ xác nhận quan sát khớp đặc tả hiện tại, không có nghĩa mọi ca đều được xử lý tự động.
+
+Lookback lấy từ **MAX timestamp bảng đích trừ 2 giờ**, không phải `now() - 2 giờ`. Đổi lịch thành 07:00/19:00 không tự gây bỏ toàn bộ event giữa hai lượt cách nhau 12 giờ. Rủi ro là row xuất hiện muộn nhưng mang server timestamp cũ hơn cutoff; client event-time cũ mà server timestamp mới vẫn được nhận.
+
+Khi sửa recovery/lookback, cập nhật expected outcomes cùng tests, thay vì giữ ca lỗi như kết quả mong đợi mãi. Các số thời gian trên fixture nhỏ không đủ để chọn index, tăng RAM hoặc kết luận tốc độ trên dataset thật.
