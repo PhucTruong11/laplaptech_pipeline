@@ -77,7 +77,7 @@ ingest → freshness → build → reconcile
 | `build` | `dbt build`, gồm model và data tests | 30 phút; retry 1 lần sau 2 phút |
 | `reconcile` | Inventory, duplicate ID, raw/Bronze/Silver và daily totals | 10 phút; không retry |
 
-Lịch là **08:15 và 16:45**, timezone `Asia/Ho_Chi_Minh`, với hai cron `15 8 * * *` và `45 16 * * *`. `catchup=False` không tạo mọi lượt bị lỡ và không thay bounded backfill. Khi Docker tắt, scheduler dừng; GitHub CI không chạy ETL thay nó.
+Lịch là **07:00 và 19:00**, timezone `Asia/Ho_Chi_Minh`, với hai cron `0 7 * * *` và `0 19 * * *`. `catchup=False` không tạo mọi lượt bị lỡ và không thay bounded backfill. Khi Docker tắt, scheduler dừng; GitHub CI không chạy ETL thay nó. Bật Docker không tự unpause DAG; lịch chỉ chạy khi DAG đã unpaused.
 
 `max_active_runs=1`, `max_active_tasks=1` giới hạn writer của DAG; pool RAM dùng chung `platform_memory=4` nhận task theo trọng số RAM; toàn run có timeout 2 giờ. Các cơ chế này không chặn người tự chạy CLI ngoài Airflow trên cùng warehouse.
 

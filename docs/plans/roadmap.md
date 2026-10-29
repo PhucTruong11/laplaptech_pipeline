@@ -4,6 +4,8 @@
 
 Mục tiêu học tập là làm hệ thống đúng, khôi phục được và dễ vận hành. Không cần hoàn thành cả bảy mục trong một tuần. Các đường dẫn ghi **dự kiến tạo** là thiết kế, không phải file/chức năng đã tồn tại. Giữ một roadmap này và [Cosmos plan](cosmos.md), không tạo thêm nhiều bản plan trùng nội dung.
 
+**Kế hoạch chốt ngày 29/10/2026:** triển khai cấu hình lookback chung, recovery `backfill → rebuild → reconcile` và correction không còn hợp lệ trong đợt tiếp theo, dự kiến trong 3–4 ngày tới. Đợt push hiện tại chỉ đưa lên lịch 07:00/19:00, công cụ kiểm định, kết quả test và tài liệu; ba thay đổi xử lý dữ liệu này vẫn chưa triển khai.
+
 ## Chọn thứ tự và phạm vi
 
 | Thứ tự | Hạng mục | Cải thiện điều gì? | Kiến thức chính | Ưu tiên |
@@ -72,6 +74,18 @@ flowchart TB
 Tài liệu nền: [PostgreSQL backup/restore](https://www.postgresql.org/docs/16/backup.html), [pg_dump và phạm vi roles](https://www.postgresql.org/docs/16/app-pgdump.html).
 
 ## 2. Lookback thống nhất và recovery backfill
+
+**Bằng chứng ngày 29/10/2026:** đã chạy [kiểm định chức năng](../validation/functional_check_2026-10-29.json), chưa sửa logic lookback/recovery. 60 Python tests pass; source fixture đi qua loader/dbt thật. Trong cửa sổ và đúng biên 2 giờ đều tới Gold, replay giữ ID/version/payload/tổng ngày. Event client-time cũ một ngày vẫn nhận được khi server timestamp mới.
+
+| Quan sát trên fixture | Quyết định tiếp theo |
+|---|---|
+| Event ngoài cửa sổ bị bỏ từ nguồn, nhưng 31 models/47 dbt tests vẫn có thể pass | Cần recovery/backfill; đối soát nội bộ không chứng minh source completeness |
+| Backfill đã vào raw nhưng ngoài cửa sổ Silver bị bỏ ở incremental | Hoàn thiện wrapper backfill → rebuild → reconcile; chưa coi `dbt build` thường là recovery |
+| Correction từ hợp lệ sang thiếu session để lại row Silver cũ | Full rebuild phục hồi; cần xử lý invalidation rõ nếu muốn recovery incremental |
+| Raw đổi sang 10800 giây nhưng Silver vẫn 2 giờ | Ưu tiên dùng một cấu hình lookback đã validate |
+| Bốn lượt incremental gây lệch đều bị `assert_raw_to_silver` chặn | Giữ test này làm acceptance gate, không bỏ test để pipeline xanh |
+
+Do đã có bằng chứng correctness gap, tiếp tục mục 2 trước tối ưu hiệu năng/Cosmos. Thời gian fixture hiện chỉ mô tả bài thử nhỏ; chưa đủ cơ sở tăng RAM, thêm index hay suy tỷ lệ late data thực tế. Cách chạy lại ở [testing mục 9](../guides/testing.md#9-kiểm-định-lookback-và-late-arriving-data).
 
 ### Vấn đề và kết quả cần đạt
 

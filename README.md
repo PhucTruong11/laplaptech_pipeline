@@ -9,7 +9,7 @@ Pipeline học Data Engineering: đọc ClickHouse public, nạp PostgreSQL, bi�
 | Thành phần | Cấu hình |
 |---|---|
 | Điều phối | Airflow 3.3.2 / LocalExecutor, DAG `laplaptech_pipeline` |
-| Lịch | 08:15 và 16:45, timezone Việt Nam; một active run/writer |
+| Lịch | 07:00 và 19:00, timezone Việt Nam; một active run/writer |
 | Warehouse | PostgreSQL 16, `127.0.0.1:55434/laplaptech_pipeline_dev` |
 | Transformation | 31 dbt model: 6 Bronze views, 13 Silver relations, 12 Gold tables |
 | Data quality | Source freshness, 47 dbt data tests và đối soát raw → Gold |

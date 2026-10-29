@@ -1,0 +1,377 @@
+{
+  "checked_at_utc": "2026-10-29T03:11:30.623403+00:00",
+  "status": "validated_with_known_limitations",
+  "scope": "Isolated synthetic PostgreSQL fixture; real loader and dbt SQL; live infrastructure read-only validation. No production ETL/build.",
+  "schedule": {
+    "timezone": "Asia/Ho_Chi_Minh",
+    "cron": [
+      "0 7 * * *",
+      "0 19 * * *"
+    ],
+    "deployed": {
+      "is_paused": true,
+      "next_run_utc": "2026-10-29T00:00:00+00:00",
+      "timezone": "Asia/Ho_Chi_Minh",
+      "cron": [
+        "0 7 * * *",
+        "0 19 * * *"
+      ],
+      "serialized_at_utc": "2026-10-29T03:02:42.751469+00:00"
+    },
+    "boundary_checks": [
+      {
+        "previous": "2026-10-29T06:59:00+07:00",
+        "next_vietnam": "2026-10-29T07:00:00+07:00"
+      },
+      {
+        "previous": "2026-10-29T07:00:00+07:00",
+        "next_vietnam": "2026-10-29T19:00:00+07:00"
+      },
+      {
+        "previous": "2026-10-29T19:00:00+07:00",
+        "next_vietnam": "2026-10-30T07:00:00+07:00"
+      }
+    ]
+  },
+  "regression": {
+    "python_tests": 60,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "fixture_full_build_and_replay": "passed",
+    "models_per_complete_build": 31,
+    "data_tests_per_complete_build": 47,
+    "live_health_status": "success"
+  },
+  "late_data": {
+    "cases": [
+      {
+        "name": "baseline",
+        "outcome": "supported",
+        "valid_raw": 3,
+        "silver": 3,
+        "gold_events": 3,
+        "daily_metric_mismatches": 0
+      },
+      {
+        "name": "late_inside_2h",
+        "outcome": "supported",
+        "valid_raw": 4,
+        "silver": 4,
+        "gold_events": 4,
+        "daily_metric_mismatches": 0
+      },
+      {
+        "name": "late_exact_2h_boundary",
+        "outcome": "supported",
+        "valid_raw": 5,
+        "silver": 5,
+        "gold_events": 5,
+        "daily_metric_mismatches": 0
+      },
+      {
+        "name": "late_outside_2h_normal_run",
+        "outcome": "limitation_confirmed",
+        "raw_received": false,
+        "silver_received": false
+      },
+      {
+        "name": "bounded_range_start_inclusive_end_exclusive",
+        "outcome": "supported",
+        "selected_ids": [
+          12
+        ]
+      },
+      {
+        "name": "raw_backfill_then_incremental_silver",
+        "outcome": "limitation_detected_by_test",
+        "raw_received": true,
+        "silver_received": false
+      },
+      {
+        "name": "backfill_then_full_rebuild",
+        "outcome": "supported",
+        "valid_raw": 6,
+        "silver": 6,
+        "gold_events": 6,
+        "daily_metric_mismatches": 0
+      },
+      {
+        "name": "old_correction_recovered_by_backfill_and_rebuild",
+        "outcome": "supported",
+        "valid_raw": 6,
+        "silver": 6,
+        "gold_events": 6,
+        "daily_metric_mismatches": 0
+      },
+      {
+        "name": "valid_to_invalid_incremental",
+        "outcome": "limitation_detected_by_test",
+        "stale_silver_row": true
+      },
+      {
+        "name": "valid_to_invalid_full_rebuild",
+        "outcome": "supported",
+        "valid_raw": 5,
+        "silver": 5,
+        "gold_events": 5,
+        "daily_metric_mismatches": 0
+      },
+      {
+        "name": "replay_ids_versions_payload_and_daily_totals",
+        "outcome": "supported",
+        "valid_raw": 5,
+        "silver": 5,
+        "gold_events": 5,
+        "daily_metric_mismatches": 0
+      },
+      {
+        "name": "older_version_cannot_overwrite",
+        "outcome": "supported"
+      },
+      {
+        "name": "same_version_conflict_rolls_back",
+        "outcome": "supported"
+      },
+      {
+        "name": "raw_3h_silver_fixed_2h",
+        "outcome": "limitation_detected_by_test",
+        "raw_received": true,
+        "silver_received": false
+      },
+      {
+        "name": "client_time_1_day_old_server_time_new",
+        "outcome": "supported",
+        "valid_raw": 7,
+        "silver": 7,
+        "gold_events": 7,
+        "daily_metric_mismatches": 0
+      }
+    ],
+    "outcome_counts": {
+      "supported": 11,
+      "limitation_confirmed": 1,
+      "limitation_detected_by_test": 3
+    },
+    "final_counts": {
+      "valid_raw": 7,
+      "silver": 7,
+      "gold_events": 7,
+      "daily_metric_mismatches": 0
+    },
+    "builds": [
+      {
+        "name": "freshness",
+        "seconds": 3.5149,
+        "success": true,
+        "statuses": {},
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "baseline",
+        "seconds": 5.3096,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "inside_window",
+        "seconds": 5.27,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "exact_boundary",
+        "seconds": 5.4735,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "outside_window",
+        "seconds": 5.6346,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "backfill_then_incremental",
+        "seconds": 3.7148,
+        "success": false,
+        "statuses": {
+          "success": 14,
+          "pass": 31,
+          "fail": 1,
+          "skipped": 33
+        },
+        "failures": [
+          "assert_raw_to_silver"
+        ],
+        "exception_type": null
+      },
+      {
+        "name": "backfill_full_recovery",
+        "seconds": 5.6237,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "old_correction_incremental",
+        "seconds": 3.9008,
+        "success": false,
+        "statuses": {
+          "success": 14,
+          "pass": 31,
+          "fail": 1,
+          "skipped": 33
+        },
+        "failures": [
+          "assert_raw_to_silver"
+        ],
+        "exception_type": null
+      },
+      {
+        "name": "old_correction_full_recovery",
+        "seconds": 5.3747,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "invalid_correction_incremental",
+        "seconds": 3.9261,
+        "success": false,
+        "statuses": {
+          "success": 14,
+          "pass": 31,
+          "fail": 1,
+          "skipped": 33
+        },
+        "failures": [
+          "assert_raw_to_silver"
+        ],
+        "exception_type": null
+      },
+      {
+        "name": "invalid_correction_recovery",
+        "seconds": 5.8821,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "replay",
+        "seconds": 6.8058,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "lookback_config_mismatch",
+        "seconds": 3.9731,
+        "success": false,
+        "statuses": {
+          "success": 14,
+          "pass": 31,
+          "fail": 1,
+          "skipped": 33
+        },
+        "failures": [
+          "assert_raw_to_silver"
+        ],
+        "exception_type": null
+      },
+      {
+        "name": "final_full_recovery",
+        "seconds": 5.7363,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      },
+      {
+        "name": "old_client_time_new_server_time",
+        "seconds": 6.1392,
+        "success": true,
+        "statuses": {
+          "success": 31,
+          "pass": 47,
+          "no-op": 1
+        },
+        "failures": [],
+        "exception_type": null
+      }
+    ]
+  },
+  "measurements": {
+    "runner_wall_seconds": {
+      "fixture-e2e": 15.8,
+      "unit-integration-dashboard": 11.734,
+      "late-data-assessment": 82.487
+    },
+    "fixture_ingestion_median_seconds": 0.2661,
+    "fixture_successful_build_median_seconds": 5.6292,
+    "limitations": "Tiny fixture, sequential runs. Not a production throughput, peak-memory or latency-distribution benchmark."
+  },
+  "preservation": {
+    "live_data_preserved": true,
+    "shared_files_preserved": true,
+    "pause_states_preserved": true,
+    "scheduler_restored": true,
+    "test_container_removed": true
+  },
+  "decisions": [
+    "Prioritize shared lookback configuration and bounded recovery before performance/Cosmos",
+    "Preserve cross-layer tests; detect incompleteness after raw backfill and corrections",
+    "Source completeness remains outside raw/Silver/Gold reconciliation when extraction skips an old row",
+    "Keep Gold publication as a subsequent improvement; atomic publication was not tested here",
+    "DAG remains paused; changing cron does not enable automatic execution"
+  ]
+}

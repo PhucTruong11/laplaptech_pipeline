@@ -409,7 +409,7 @@ Khi A–C đã đạt, đưa TaskGroup vào luồng production:
 ingest → freshness → transform TaskGroup → collect Cosmos results → reconcile
 ```
 
-Tách factory stage ra helper dùng chung rồi tái sử dụng ingest/freshness/reconcile, target guards, timeout và raw/Gold Assets. Giữ hai cron 08:15/16:45 Việt Nam, `catchup=False`, param `full_refresh`, một active run/task. Bảo đảm full-refresh được truyền đến từng model, còn ingest vẫn theo watermark; không chạy lại `dbt build` toàn bộ sau TaskGroup vì sẽ materialize lần hai.
+Tách factory stage ra helper dùng chung rồi tái sử dụng ingest/freshness/reconcile, target guards, timeout và raw/Gold Assets. Giữ hai cron 07:00/19:00 Việt Nam, `catchup=False`, param `full_refresh`, một active run/task. Bảo đảm full-refresh được truyền đến từng model, còn ingest vẫn theo watermark; không chạy lại `dbt build` toàn bộ sau TaskGroup vì sẽ materialize lần hai.
 
 Chọn giữ DAG ID cũ hoặc chuyển ID mới một lần có chủ đích; nếu giữ ID cũ, cần kiểm tra task history/serialized DAG version khi thay topology. Pause trial/legacy trước khi bật đúng **một** production writer. Xác nhận lịch, task set, cgroup, tests, summary, reconcile và dashboard bằng verifier mới.
 

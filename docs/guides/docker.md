@@ -142,7 +142,7 @@ python check_resources.py
 
 Khi xem xong, `docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml stop dashboard` trả lại tối đa 512 MiB ngân sách. Nếu audit báo vượt trần do service khác đang chạy, dừng service không cần thiết hoặc đo tải rồi điều chỉnh policy.
 
-Scheduled run mặc định `full_refresh=false`, lịch **08:15 và 16:45**, timezone `Asia/Ho_Chi_Minh`, `catchup=False`. `max_active_runs=1`, `max_active_tasks=1` giới hạn writer của DAG; pool chung `platform_memory` có bốn slot, mỗi task chiếm slot theo RAM. Không chạy ingestion thủ công song song trên cùng warehouse.
+Scheduled run mặc định `full_refresh=false`, lịch **07:00 và 19:00**, timezone `Asia/Ho_Chi_Minh`, `catchup=False`. `max_active_runs=1`, `max_active_tasks=1` giới hạn writer của DAG; pool chung `platform_memory` có bốn slot, mỗi task chiếm slot theo RAM. Không chạy ingestion thủ công song song trên cùng warehouse.
 
 | Task | Công việc | Chính sách |
 |---|---|---|
