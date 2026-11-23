@@ -1,22 +1,20 @@
 # Roadmap cải tiến LapLapTech
 
-**Trạng thái: kế hoạch, chưa triển khai các hạng mục bên dưới.** Baseline đối chiếu ngày 26/10/2026: Docker local, DAG bốn stage, 31 dbt models/47 data tests, role pipeline và Gold reader riêng. [Data flow](../architecture/data_flow.md) mô tả code đang có; trang này mô tả vấn đề cần sửa, nơi sửa và tiêu chí chứng minh kết quả.
+**Trạng thái:** mục 2 đã có lookback dùng chung và recovery CLI; mục 7 đã có graph Cosmos chạy theo model. Correction trong lượt incremental, consumer theo Asset và các mục còn lại ở trạng thái kế hoạch. [Data flow](../architecture/data_flow.md) mô tả kiến trúc đang dùng.
 
 Mục tiêu học tập là làm hệ thống đúng, khôi phục được và dễ vận hành. Không cần hoàn thành cả bảy mục trong một tuần. Các đường dẫn ghi **dự kiến tạo** là thiết kế, không phải file/chức năng đã tồn tại. Giữ một roadmap này và [Cosmos plan](cosmos.md), không tạo thêm nhiều bản plan trùng nội dung.
-
-**Kế hoạch chốt ngày 29/10/2026:** triển khai cấu hình lookback chung, recovery `backfill → rebuild → reconcile` và correction không còn hợp lệ trong đợt tiếp theo, dự kiến trong 3–4 ngày tới. Đợt push hiện tại chỉ đưa lên lịch 07:00/19:00, công cụ kiểm định, kết quả test và tài liệu; ba thay đổi xử lý dữ liệu này vẫn chưa triển khai.
 
 ## Chọn thứ tự và phạm vi
 
 | Thứ tự | Hạng mục | Cải thiện điều gì? | Kiến thức chính | Ưu tiên |
 |---|---|---|---|---|
 | 1 | [Backup/restore có kiểm chứng](#1-backup-và-restore-có-kiểm-chứng) | Có thể phục hồi data, quyền và điều phối khi sự cố | RPO/RTO, logical backup, restore drill | Làm trước |
-| 2 | [Lookback thống nhất và recovery backfill](#2-lookback-thống-nhất-và-recovery-backfill) | Event đến muộn/sửa dữ liệu cũ đi đúng từ nguồn đến Gold | Incremental correctness, idempotency, writer coordination | Làm tiếp |
+| 2 | [Lookback thống nhất và recovery backfill](#2-lookback-thống-nhất-và-recovery-backfill) | Event đến muộn/sửa dữ liệu cũ đi đúng từ nguồn đến Gold | Incremental correctness, idempotency, writer coordination | Đã có lookback chung và recovery CLI; còn correction incremental |
 | 3 | [Publish Gold nhất quán](#3-publish-gold-nhất-quán-và-cache-theo-phiên-bản) | Dashboard chỉ đọc một bản đã kiểm chứng | Transactions, versioned data, cache invalidation | Làm sau mục 2 |
 | 4 | [Data contracts và quarantine](#4-data-contracts-và-quarantine-có-lý-do) | Biết dữ liệu nào bị từ chối và vì sao | Schema evolution, validation, audit | Sau khi recovery ổn định |
 | 5 | [Đo và tối ưu extraction/query](#5-đo-và-tối-ưu-extraction-cùng-truy-vấn) | Hạn chế OOM và biết nút thắt thực tế | Streaming, indexing, query plans, measurement | Đo sớm; sửa theo bằng chứng |
 | 6 | [Lịch sử catalog/SCD Type 2](#6-lịch-sử-catalog-và-scd-type-2) | Phân tích theo catalog tại thời điểm phù hợp | Temporal modeling, surrogate keys, as-of joins | Khi có nhu cầu lịch sử |
-| 7 | [Cosmos và consumer theo Asset](#7-cosmos-và-consumer-theo-asset) | Quan sát/retry từng model, tách producer/consumer có kiểm soát | dbt graph orchestration, event-driven scheduling | Nhánh tùy chọn |
+| 7 | [Cosmos và consumer theo Asset](#7-cosmos-và-consumer-theo-asset) | Quan sát/retry từng model, tách producer/consumer có kiểm soát | dbt graph orchestration, event-driven scheduling | Graph đã có; consumer tùy nhu cầu |
 
 ```mermaid
 flowchart TB
@@ -75,23 +73,23 @@ Tài liệu nền: [PostgreSQL backup/restore](https://www.postgresql.org/docs/1
 
 ## 2. Lookback thống nhất và recovery backfill
 
-**Bằng chứng ngày 29/10/2026:** đã chạy [kiểm định chức năng](../validation/functional_check_2026-10-29.json), chưa sửa logic lookback/recovery. 60 Python tests pass; source fixture đi qua loader/dbt thật. Trong cửa sổ và đúng biên 2 giờ đều tới Gold, replay giữ ID/version/payload/tổng ngày. Event client-time cũ một ngày vẫn nhận được khi server timestamp mới.
+**Baseline 29/10/2026:** [kiểm định chức năng](../validation/functional_check_2026-10-29.json) ghi các tình huống tái hiện bằng fixture trước khi sửa. Report lịch sử giữ nguyên để so sánh.
 
 | Quan sát trên fixture | Quyết định tiếp theo |
 |---|---|
-| Event ngoài cửa sổ bị bỏ từ nguồn, nhưng 31 models/47 dbt tests vẫn có thể pass | Cần recovery/backfill; đối soát nội bộ không chứng minh source completeness |
-| Backfill đã vào raw nhưng ngoài cửa sổ Silver bị bỏ ở incremental | Hoàn thiện wrapper backfill → rebuild → reconcile; chưa coi `dbt build` thường là recovery |
+| Event ngoài cửa sổ có thể bị bỏ trong lượt thường | Chọn khoảng và chạy recovery khi nguồn còn dữ liệu |
+| Backfill đã vào Raw nhưng nằm ngoài cửa sổ Silver | Recovery chạy full build và reconcile sau backfill |
 | Correction từ hợp lệ sang thiếu session để lại row Silver cũ | Full rebuild phục hồi; cần xử lý invalidation rõ nếu muốn recovery incremental |
-| Raw đổi sang 10800 giây nhưng Silver vẫn 2 giờ | Ưu tiên dùng một cấu hình lookback đã validate |
+| Baseline Raw đổi sang 10800 giây nhưng Silver vẫn 2 giờ | Raw và Silver giờ đọc cùng cấu hình đã validate; fixture 3 giờ phải qua incremental |
 | Bốn lượt incremental gây lệch đều bị `assert_raw_to_silver` chặn | Giữ test này làm acceptance gate, không bỏ test để pipeline xanh |
 
-Do đã có bằng chứng correctness gap, tiếp tục mục 2 trước tối ưu hiệu năng/Cosmos. Thời gian fixture hiện chỉ mô tả bài thử nhỏ; chưa đủ cơ sở tăng RAM, thêm index hay suy tỷ lệ late data thực tế. Cách chạy lại ở [testing mục 9](../guides/testing.md#9-kiểm-định-lookback-và-late-arriving-data).
+Cách chạy lại fixture ở [testing mục 9](../guides/testing.md#9-kiểm-định-lookback-và-late-arriving-data). Thời gian fixture mô tả bài thử nhỏ và không dùng để chọn RAM/index hoặc suy tỷ lệ late data thật.
 
 ### Vấn đề và kết quả cần đạt
 
-Raw dùng `INGESTION_LOOKBACK_SECONDS` mặc định 7200; Silver event hardcode `INTERVAL '2 hour'` và có MAX watermark riêng. CLI đã có `[start,end)` nhưng DAG chỉ có `full_refresh`. Event ngoài cửa sổ có thể thiếu ở raw hoặc Silver; full-refresh dbt không đọc lại ClickHouse.
+Raw và Silver dùng `INGESTION_LOOKBACK_SECONDS` mặc định 7200 và giữ MAX watermark riêng. Recovery CLI đọc nguồn theo `[start,end)` rồi full build từ Raw. Lịch Airflow tiếp tục dùng luồng incremental.
 
-Một raw event được sửa từ hợp lệ sang thiếu name/session có thể để lại bản Silver cũ do bộ lọc incremental. Backfill hiện còn refresh năm dimension bằng catalog hiện tại. Cần một quy trình phục hồi **nguồn → raw → toàn graph → đối soát**, có bằng chứng ID/version, không chỉ counts.
+Correction từ hợp lệ sang thiếu name/session còn có thể để lại bản Silver cũ trong lượt incremental. Full rebuild trong recovery sửa được trường hợp correction đã vào Raw. Khi cần tự xử lý trong lượt thường, thêm test cho ID chuyển trạng thái rồi thiết kế cập nhật/xóa bản Silver theo tập ID thay đổi.
 
 ```mermaid
 flowchart TB
@@ -108,13 +106,13 @@ flowchart TB
 
 ### Sửa ở đâu?
 
-| Source hiện có | Thay đổi dự kiến |
+| Thành phần | Trạng thái |
 |---|---|
 | [Ingestion](../../ingestion/clickhouse_to_postgres.py) | Hàm đọc/validate lookback thống nhất, giữ ngữ nghĩa version và range |
 | [Stage entrypoint](../../scripts/run_airflow_stage.py) | Truyền cấu hình đã validate vào dbt và mở rộng report recovery |
-| [Silver event](../../dbt/models/silver/silver_user_event_tracking.sql), [dbt config](../../dbt/dbt_project.yml) | Bỏ literal 2 giờ, dùng cùng giá trị qua dbt var/env đã kiểm |
+| [Silver event](../../dbt/models/silver/silver_user_event_tracking.sql), [macro](../../dbt/macros/event_lookback_seconds.sql) | Dùng cùng biến môi trường đã kiểm |
 | [Fixture](../../scripts/dev_fixtures.py), [ingestion tests](../../tests/test_ingestion.py), [dev runner](../../scripts/run_dev_pipeline.py) | Thêm tình huống late/correction, so ID/version/payload và Gold |
-| Dự kiến tạo `scripts/recover_pipeline.py` | Wrapper manual trong Docker, range/target guards, baseline và report |
+| [Recovery CLI](../../scripts/Invoke-LocalRecovery.ps1) và [runtime](../../scripts/recover_pipeline.py) | Chạy thủ công trong Docker với kiểm tra range/target, snapshot và report |
 | [Ingestion guide](../guides/ingestion.md), [dbt guide](../guides/dbt.md) | Một đường recovery có checkpoint; ghi rõ phạm vi dimension/full graph |
 
 ### Làm như thế nào?
@@ -306,46 +304,9 @@ flowchart TB
 
 ## 7. Cosmos và consumer theo Asset
 
-### Vấn đề và kết quả cần đạt
+Cosmos đã có graph theo model, tests sau graph và collector trước reconcile. Hướng dẫn phát hành/retry ở [vận hành Cosmos](cosmos.md). Lịch chính vẫn theo cron; validated Gold Asset xác nhận reconcile của lượt đó. Publication Gold theo một phiên bản nhất quán vẫn ở mục 3.
 
-Airflow hiện có một task `build` bao toàn bộ dbt; muốn thấy model nào lỗi phải mở dbt artifacts. Cosmos có thể dựng task dependency từ dbt graph để quan sát/retry theo model. Hai Assets raw/validated Gold đã tồn tại, nhưng chưa có consumer DAG và lịch chính vẫn theo cron.
-
-Đây là hai khả năng liên quan nhưng **không phải cùng một tính năng**: Cosmos chia graph transformation; Asset nối producer và consumer khi dữ liệu đạt trạng thái yêu cầu. Chỉ thêm consumer khi có công việc downstream thật, tránh tách thành nhiều DAG chỉ để sơ đồ nhiều node.
-
-```mermaid
-flowchart TB
-    I["Ingest"] --> F["Freshness"]
-    F --> M["Cosmos: model tasks<br/>dependency từ manifest"]
-    M --> T["Tests theo chiến lược đã kiểm"]
-    T --> A["Collect đủ artifacts"]
-    A --> R["Reconcile / publish nếu đã có mục 3"]
-    R --> GOLD["Validated published Gold Asset"]
-    GOLD -. "khi có nhu cầu thật" .-> C["Consumer DAG: report / export"]
-```
-
-Sơ đồ là kiến trúc dự kiến. Nếu publication mục 3 chưa triển khai thì không gọi Asset hiện tại là “published Gold”; nó mới xác nhận reconcile của lượt build hiện hành.
-
-### Sửa ở đâu?
-
-- Đọc và thực hiện [Cosmos plan](cosmos.md): đã có các bước candidate image, manifest, converter/operator, collector và cutover; không tạo guide thứ hai.
-- [DAG hiện tại](../../infra/laplaptech/dags/laplaptech_pipeline.py): thử DAG manual ngoài lịch chính, giữ stage ingest/freshness và final validation.
-- Platform image/overlays/operator policy: thay đúng scope sau drain và theo contract platform; runtime project vẫn riêng, giữ `BudgetDockerOperator`/`platform_memory`.
-- Dự kiến tạo wrapper node/collector như Cosmos plan; [verifier](../../scripts/verify_local_stack.py), tests và artifact handling phải hiểu nhiều task/attempt.
-- [Airflow guide](../guides/airflow.md), [dbt exposure](../../dbt/models/exposures.yml): giải thích consumer/producer và lineage sau khi đã chạy thử.
-
-### Làm như thế nào?
-
-1. Pin và thử dependency trong image ứng viên; parse manifest và đối chiếu graph thật, gồm nhánh không đi qua đủ ba tầng. Giữ image/DAG cũ để quay lại.
-2. Chặng đầu dùng manifest load và Docker tasks theo [Cosmos plan](cosmos.md); model tasks dùng resource policy đang có. Nhiều task không mặc định tăng parallelism/RAM hoặc chia sẻ Python dependencies vào Airflow.
-3. Chọn/test vị trí data tests. Singular tests nhiều parent phải chờ đủ dữ liệu; tách Bronze/Silver/Gold tùy ý có thể chạy kiểm tra chéo quá sớm. Chặng đầu của plan chọn tests sau tất cả models và ghi rõ tradeoff phát hiện lỗi muộn.
-4. Collector phải xác nhận đủ model/test results của đúng run/attempt. Retry một model chỉ an toàn khi upstream/input và downstream invalidation đã được kiểm; không mặc định retry một node là toàn graph đã đồng bộ.
-5. Thử một model fail, một test fail, task timeout và retry; không phát validated Gold Asset khi thiếu results hoặc final validation lỗi.
-6. Chỉ khi có report/export/consumer thực tế mới tạo consumer theo Gold Asset, giữ namespace riêng và tránh vòng kích hoạt. Consumer vẫn cần quyền đọc/target guard và phải biết version được publish.
-7. Cutover sau checkpoint: chỉ một DAG/lịch được quyền ghi warehouse, giữ/khôi phục pause state các project khác. Nếu thêm writer/recovery DAG phải hoàn thành coordination ở mục 2 trước.
-
-**Nghiệm thu:** graph khớp manifest, model/test coverage đầy đủ theo inventory tại thời điểm đó, lỗi/retry/pool/cgroup và final Asset được kiểm; không có hai lịch writer hoạt động. **Quay lại:** pause/drain DAG mới, quay về image/DAG cũ và đúng pause states; giữ artifacts để điều tra.
-
-Tài liệu nền: [Cosmos](https://astronomer.github.io/astronomer-cosmos/), [Airflow Assets](https://airflow.apache.org/docs/apache-airflow/3.3.2/authoring-and-scheduling/assets.html).
+Khi có report/export thực sự cần chạy theo dữ liệu mới, thêm consumer thủ công trên DB test trước. Sau đó nối consumer với Gold Asset, đặt ID riêng, thử tình huống producer lỗi hoặc retry và kiểm tra quyền đọc của consumer. Chỉ chuyển sang lịch theo Asset sau khi xác nhận consumer không chạy trùng hoặc đọc nhầm phiên bản.
 
 ## Quy tắc hoàn tất áp dụng cho cả bảy mục
 
@@ -357,4 +318,4 @@ Tài liệu nền: [Cosmos](https://astronomer.github.io/astronomer-cosmos/), [A
 
 Bảo trì đi cùng các mục: pin image digest khi phát hành; giữ backup mới và bản trước đã restore được; lập retention dry-run cho logs/artifacts/candidates theo run/version và chỉ xóa sau khi xác định không còn dùng. Không tự xóa database volume, key/config hay backup cuối cùng. Clean-machine smoke cần kiểm riêng trước khi tuyên bố người khác clone là chạy được trên mọi môi trường.
 
-**Lượt triển khai tiếp theo đề xuất:** hoàn thành mục 1, sau đó bắt đầu fixtures và cấu hình lookback của mục 2. Mục 3 có thể bắt đầu bằng POC hai bảng; SCD/Cosmos để sau khi correctness và recovery đã có bằng chứng.
+**Lượt tiếp theo đề xuất:** diễn tập backup/restore, xử lý correction trong lượt incremental và thử publish Gold nhất quán với hai bảng. SCD và consumer theo Asset để sau khi có nhu cầu sử dụng.

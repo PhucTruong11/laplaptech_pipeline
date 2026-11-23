@@ -4,7 +4,7 @@
 
 ## 1. Mục đích và cấu hình
 
-ClickHouse public cung cấp dữ liệu; Airflow tạo task container để ingest → freshness → dbt build → reconcile; PostgreSQL local giữ warehouse; Streamlit đọc Gold. GitHub Actions chỉ chạy CI fixture. Thiết kế và lệnh dưới đây đối chiếu source hiện tại; [report hệ thống](../validation/system_check_2026-10-20.json) là bằng chứng theo ngày, không phải trạng thái realtime.
+ClickHouse public cung cấp dữ liệu; Airflow tạo task container để ingest → freshness → graph Cosmos → tests → reconcile; PostgreSQL local giữ warehouse; Streamlit đọc Gold. GitHub Actions chạy CI fixture. [Report hệ thống](../validation/system_check_2026-10-20.json) ghi kiểm chứng của luồng cũ theo ngày; dùng verifier để kiểm trạng thái hiện tại.
 
 ### Lệnh nhanh để lưu vào Notepad
 
@@ -14,7 +14,7 @@ Chạy trong PowerShell. Từ **root repo**, xác định workspace mặc địn
 $platformDir = Join-Path (Split-Path -Path (Get-Location).Path -Parent) 'airflow-platform'
 ```
 
-Trước khi dùng lệnh Compose `stop`, kiểm tra và đợi mọi DAG run/task đang chạy kết thúc; lệnh Compose **không tự kiểm tra**. Công tắc `.\scripts\Set-LocalStack.ps1 -State Off` ở mục 5 có kiểm tra an toàn. `stop` không xóa database trong named volume.
+Trước khi dừng **toàn stack**, đợi mọi DAG run/task kết thúc hoặc dùng công tắc `.\scripts\Set-LocalStack.ps1 -State Off` ở mục 5 để kiểm tra. Có thể dừng riêng dashboard trong lúc pipeline chạy. `stop` giữ database trong named volume.
 
 ```text
 LapLapTech
@@ -104,7 +104,7 @@ if (-not (Test-Path -LiteralPath '.env')) {
 
 **Checkpoint:** script kết thúc thành công, tạo pool RAM dùng chung `platform_memory` bốn slot và báo địa chỉ Airflow. Dashboard được giữ tắt để tiết kiệm RAM; bật riêng sau khi có Gold. Nếu có lỗi, sửa lỗi đầu tiên trước khi chạy lại; không xóa volumes để thử.
 
-Lần đầu chỉ cần Docker bootstrap → đăng nhập Airflow → unpause/trigger → bốn task success → mở dashboard theo mục 4. Không cần chạy thêm `dbt run` hoặc cài dbt lên host. Dùng [dbt guide](dbt.md) khi muốn học/chạy từng lệnh, [testing](testing.md) nếu muốn kiểm thử bằng fixture trước khi dùng nguồn thật.
+Lần đầu dùng Docker bootstrap → đăng nhập Airflow → unpause/trigger → đợi reconcile thành công → mở dashboard theo mục 4. Bootstrap mới build Cosmos và xuất manifest cùng runtime. Dùng [dbt guide](dbt.md) khi muốn học từng lệnh và [testing](testing.md) khi muốn kiểm bằng fixture.
 
 `-InitializePlatform` chỉ chấp nhận thư mục mới/rỗng, dành cho người clone dự án lần đầu. Bootstrap mặc định dùng workspace sibling `airflow-platform`. Nếu đã có platform, chạy `.\scripts\Start-LocalStack.ps1` **không có cờ khởi tạo**: script kiểm tra integration, build hai image của LapLapTech, cấp quyền/nạp config riêng và giữ nguyên Compose, `.gitignore`, operator, registry, keys và hướng dẫn platform. Không tự cập nhật hạ tầng chung từ template trong repo.
 
@@ -130,17 +130,8 @@ Source DAG duy nhất là [`infra/laplaptech/dags/laplaptech_pipeline.py`](../..
 1. Mở Airflow, đợi `laplaptech_pipeline` xuất hiện và không có import error.
 2. Unpause DAG. Khi bật lần đầu, Airflow có thể tạo lượt mới nhất đã đến hạn; các run vẫn chạy tuần tự.
 3. Trigger manual với `full_refresh=true` khi cần rebuild Silver incremental từ raw.
-4. Kiểm tra cả bốn task `ingest`, `freshness`, `build`, `reconcile` success; đọc Task Logs khi có task lỗi.
-5. Sau khi Gold đã được build, bật dashboard bằng lệnh ở dưới rồi mở cổng 8501. Healthcheck chờ HTTP và đủ 12 Gold relations; DB rỗng có thể làm dashboard chưa healthy đến khi build đầu xong.
-
-```powershell
-$platformDir = Join-Path (Split-Path -Path (Get-Location).Path -Parent) 'airflow-platform'
-Set-Location -LiteralPath $platformDir
-docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard up -d dashboard
-python check_resources.py
-```
-
-Khi xem xong, `docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml stop dashboard` trả lại tối đa 512 MiB ngân sách. Nếu audit báo vượt trần do service khác đang chạy, dừng service không cần thiết hoặc đo tải rồi điều chỉnh policy.
+4. Kiểm tra `ingest`, `freshness`, nhóm `transform`, `dbt_tests`, collector và `reconcile` success. Đọc Task Logs của model lỗi. [Hướng dẫn Cosmos](../plans/cosmos.md) ghi cách phát hành và rollback.
+5. Sau khi Gold đã được build, bật dashboard theo [mục 5](#bật-tắt-riêng-dashboard). Healthcheck kiểm tra HTTP và đủ 12 Gold relations trong warehouse.
 
 Scheduled run mặc định `full_refresh=false`, lịch **07:00 và 19:00**, timezone `Asia/Ho_Chi_Minh`, `catchup=False`. `max_active_runs=1`, `max_active_tasks=1` giới hạn writer của DAG; pool chung `platform_memory` có bốn slot, mỗi task chiếm slot theo RAM. Không chạy ingestion thủ công song song trên cùng warehouse.
 
@@ -148,12 +139,13 @@ Scheduled run mặc định `full_refresh=false`, lịch **07:00 và 19:00**, ti
 |---|---|---|
 | `ingest` | Snapshot atomic từng bảng cho 5 bảng; event dedup/upsert với lookback | Timeout 45 phút, retry 1 lần sau 2 phút |
 | `freshness` | `dbt source freshness` | Warn 24 giờ/error 48 giờ; timeout 5 phút, không retry |
-| `build` | 31 model và 47 data tests; optional `--full-refresh` | Timeout 30 phút, retry 1 lần sau 2 phút |
+| `transform` | 31 model trong task riêng; optional `--full-refresh` | Mỗi model timeout 30 phút, retry 1 lần sau 2 phút |
+| `dbt_tests` và `collect_dbt_results` | 47 data test và kiểm artifact của release/run | Mỗi task timeout 30 phút, không retry tự động |
 | `reconcile` | Inventory, duplicate ID, raw/Bronze/Silver và daily events/session-days | Timeout 10 phút, không retry |
 
 Task container dùng UID 10001, config read-only, artifact volume riêng; dataset không qua XCom. Asset raw cập nhật khi ingest thành công; validated Gold chỉ phát sau reconcile. Assets lưu metadata dữ liệu sẵn sàng, không chứa dataset và không thay lịch cron.
 
-`full_refresh` chỉ thay lệnh dbt build; nó không lấy lại mọi version nguồn bị sửa/xóa. Gold chưa publish nguyên khối: build fail giữa chừng có thể để lại các mart khác phiên bản. Reconcile/Asset success không phải transaction chung cho toàn warehouse.
+`full_refresh=true` yêu cầu các task model Cosmos chạy `dbt run --full-refresh`. Chế độ legacy dùng `dbt build --full-refresh`. Ingestion vẫn giữ quy tắc snapshot và lookback. Gold được cập nhật theo từng model, nên build lỗi giữa chừng có thể để lại các mart ở những phiên bản khác nhau.
 
 Tại **root repo**, verifier chuẩn kiểm tra hệ thống và dữ liệu hiện có, mặc định không trigger ETL:
 
@@ -211,6 +203,17 @@ docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml up -d
 ```
 
 Không thêm `-v`/`--volumes` khi dừng thường ngày. Dữ liệu, metadata, logs và artifacts nằm trong named volumes. Docker/laptop tắt thì scheduler/dashboard dừng; CI không chạy bù ETL. Lượt kế tiếp dùng watermark + lookback; `catchup=False` không sinh toàn bộ lịch bị lỡ và không thay bounded backfill.
+
+### Bật tắt riêng dashboard
+
+Chạy ở workspace platform. Airflow và warehouse tiếp tục chạy khi dashboard tắt, nên có thể xem kết quả lượt **07:00 / 19:00** trên Airflow trước khi mở dashboard lại.
+
+```powershell
+docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard up -d dashboard
+docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard stop dashboard
+```
+
+Mở [localhost:8501](http://localhost:8501) theo mặc định. Nếu cổng host đang bận, đặt `$env:DASHBOARD_PORT = '8502'` trong PowerShell trước lệnh `up` và mở [localhost:8502](http://localhost:8502). Biến này chỉ tồn tại trong phiên PowerShell hiện tại. Dùng `docker compose` với hai file trên và `--profile dashboard ps dashboard` để xem cổng thực tế. Dashboard có ngân sách tối đa 512 MiB khi chạy. Kiểm ngân sách từ workspace platform bằng `python check_resources.py`.
 
 ## 6. Sửa code và cấu hình
 
@@ -291,6 +294,7 @@ Get-ChildItem -LiteralPath $backupDir -Force
 | Freshness error | Đối chiếu `sources.json` và timestamp nguồn; không bỏ kiểm tra chỉ để run xanh |
 | Task exit 137 | Xem RAM và task log, đo workload; giảm đồng thời trước khi tăng giới hạn |
 | Dashboard unhealthy | Đợi build đầu xong, xem log dashboard và kết nối DB; healthcheck yêu cầu đủ Gold relations |
+| Dashboard **Today** hiện 0 | Kiểm tra `reconcile` của lượt mới nhất và mốc **Latest received event**. **Refresh data** đọc lại Gold sau khi xóa cache 5 phút. Nếu Gold vẫn rỗng cho ngày hiện tại, đối chiếu số sự kiện từ ClickHouse theo giờ Việt Nam. |
 
 ## 9. Phạm vi cloud và bằng chứng
 

@@ -19,12 +19,12 @@ Source hiện có **31 model, 47 data tests, 6 sources và 1 exposure**. Repo pi
 |---|---|---|
 | `dbt run` | Tạo/cập nhật các model đã chọn; không chạy data tests | Thử SQL hoặc chạy lại một model khi phát triển |
 | `dbt test` | Kiểm tra dữ liệu/model hiện có; không rebuild các model đó | Chạy lại invariant sau khi sửa lỗi hoặc kiểm tra bảng đã build |
-| `dbt build` | Build model và chạy tests theo dependency; test error có thể chặn downstream | Stage `build` của Airflow, gồm 31 model và 47 data tests khi chọn toàn project |
+| `dbt build` | Build model và chạy tests theo dependency; test error có thể chặn downstream | Recovery, fixture và chế độ legacy; Cosmos tách model và data tests thành các task riêng |
 | `dbt source freshness` | Đối chiếu timestamp nguồn với ngưỡng warn/error | Stage `freshness`, trước build; không nằm trong `dbt build` |
 | `exposures:` trong YAML | Khai báo ứng dụng/dashboard nào sử dụng các model | Ghi lineage của Streamlit và chọn upstream cần run/test/build |
 | `dbt docs generate` / `dbt docs serve` | Sinh/mở tài liệu catalog và lineage, gồm exposure | Học model và xem dashboard phụ thuộc bảng nào |
 
-`build` còn hỗ trợ seeds/snapshots nếu project có các resource đó; repo hiện không có seed/snapshot. Luồng mặc định là **ingestion → source freshness → dbt build → reconcile**. Không cần thêm `run` rồi `test` vào Airflow sau một `build` toàn project đã pass. [Command reference](https://docs.getdbt.com/reference/dbt-commands), [dbt build](https://docs.getdbt.com/reference/commands/build), [source freshness](https://docs.getdbt.com/reference/commands/source).
+`build` còn hỗ trợ seeds/snapshots, hiện repo chưa dùng. DAG Cosmos chạy model riêng, rồi chạy data tests một lượt. Lệnh `dbt build` vẫn là cách kiểm toàn graph trong fixture và recovery. [Command reference](https://docs.getdbt.com/reference/dbt-commands), [dbt build](https://docs.getdbt.com/reference/commands/build), [source freshness](https://docs.getdbt.com/reference/commands/source).
 
 Source cấu hình chuẩn: [`dbt_project.yml`](../../dbt/dbt_project.yml), [`profiles.yml`](../../dbt/profiles.yml), [`sources.yml`](../../dbt/models/sources.yml), [`model_tests.yml`](../../dbt/models/model_tests.yml) và [`dbt/tests/`](../../dbt/tests). Repo chưa dùng package dbt bên ngoài nên không cần bước `dbt deps`.
 
@@ -34,7 +34,7 @@ Sau khi [Docker stack](docker.md) đã được dựng:
 
 1. Mở [Airflow](http://localhost:8080), chọn `laplaptech_pipeline`.
 2. Trigger với `full_refresh=false` cho lượt thường; dùng `true` khi cần rebuild Silver incremental từ raw.
-3. Theo dõi `ingest → freshness → build → reconcile`; cả bốn task cần success.
+3. Theo dõi `ingest → freshness → transform → dbt_tests → collect_dbt_results → reconcile`. Mỗi model trong `transform` có một task Cosmos. Lệnh `dbt build` vẫn dùng cho fixture, recovery và chế độ legacy.
 4. Mở log task để tìm đường dẫn artifacts, rồi xem dashboard.
 
 Airflow gọi [`run_airflow_stage.py`](../../scripts/run_airflow_stage.py) trong image runtime. Wrapper nạp config volume read-only, xác nhận đúng database/user và giữ output riêng theo run/task/attempt. Dataset không đi qua XCom.

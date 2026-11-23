@@ -1,6 +1,6 @@
 # Chạy và hiểu DAG Airflow
 
-**Dùng khi:** muốn trigger DAG, đọc trạng thái task hoặc sửa lịch/retry. Nếu chỉ cần bật/tắt Docker, xem [Docker guide](docker.md). [Sơ đồ 4 task](../architecture/data_flow.md#1-toàn-hệ-thống-ai-làm-việc-gì) giúp đọc trước phần chi tiết.
+**Dùng khi:** muốn trigger DAG, đọc trạng thái task hoặc sửa lịch/retry. Nếu chỉ cần bật/tắt Docker, xem [Docker guide](docker.md). [Sơ đồ data flow](../architecture/data_flow.md#1-toàn-hệ-thống-ai-làm-việc-gì) giúp đọc trước phần chi tiết.
 
 ## 1. Điều kiện và vai trò
 
@@ -17,7 +17,7 @@ Stack đã được dựng theo [hướng dẫn Docker](docker.md), Docker Deskt
 
 Airflow quản lý thứ tự và trạng thái task; dependency SQL giữa 31 model vẫn do dbt quản lý. Xem [dbt](dbt.md) để chạy/chọn model và [data flow](../architecture/data_flow.md) để hiểu grain/metric.
 
-Kế hoạch nâng cấp để hiển thị/chạy từng model trên Airflow có tại [Cosmos step by step](../plans/cosmos.md). Đây là tài liệu thực hành chưa triển khai; flow hiện hành vẫn dùng một task `build`.
+Cosmos đưa dependency của từng model từ manifest lên Airflow. Xem [hướng dẫn Cosmos](../plans/cosmos.md) để phát hành manifest và retry đúng model.
 
 ## 2. Source, workspace và cấu hình
 
@@ -67,23 +67,24 @@ Mỗi run ID phải khác nhau. Unpause lần đầu có thể tạo lượt l�
 ## 4. Đọc DAG theo ý nghĩa vận hành
 
 ```text
-ingest → freshness → build → reconcile
+ingest → freshness → transform (31 model tasks) → dbt_tests → collect_dbt_results → reconcile
 ```
 
 | Task | Công việc | Timeout / retry |
 |---|---|---|
 | `ingest` | 5 snapshot atomic theo bảng + event dedup/upsert | 45 phút; retry 1 lần sau 2 phút |
 | `freshness` | `dbt source freshness` | 5 phút; không retry; warn 24 giờ/error 48 giờ |
-| `build` | `dbt build`, gồm model và data tests | 30 phút; retry 1 lần sau 2 phút |
+| `transform` | Cosmos chạy `dbt run` cho từng model | Mỗi model 30 phút; retry 1 lần sau 2 phút |
+| `dbt_tests` và `collect_dbt_results` | Chạy 47 data test rồi kiểm artifact của từng model/test | Mỗi task 30 phút; không retry tự động |
 | `reconcile` | Inventory, duplicate ID, raw/Bronze/Silver và daily totals | 10 phút; không retry |
 
 Lịch là **07:00 và 19:00**, timezone `Asia/Ho_Chi_Minh`, với hai cron `0 7 * * *` và `0 19 * * *`. `catchup=False` không tạo mọi lượt bị lỡ và không thay bounded backfill. Khi Docker tắt, scheduler dừng; GitHub CI không chạy ETL thay nó. Bật Docker không tự unpause DAG; lịch chỉ chạy khi DAG đã unpaused.
 
 `max_active_runs=1`, `max_active_tasks=1` giới hạn writer của DAG; pool RAM dùng chung `platform_memory=4` nhận task theo trọng số RAM; toàn run có timeout 2 giờ. Các cơ chế này không chặn người tự chạy CLI ngoài Airflow trên cùng warehouse.
 
-Factory `pipeline_stage` dùng `BudgetDockerOperator`, image `laplaptech-runtime:local-v1`, UID 10001. RAM/CPU/slot theo stage lấy từ policy dùng chung: ingest 2048 MiB/2 CPU/4 slot, freshness và reconcile 512 MiB/1 CPU/1 slot, build 1024 MiB/1 CPU/2 slot. Xem [quản lý tài nguyên](resources.md) để thêm project hoặc thay ngân sách. Config volume chỉ đọc; artifact volume cho phép ghi. `mount_tmp_dir=False` tránh cố mount đường dẫn tạm của scheduler vào sibling container. Dataset không truyền qua XCom.
+Factory `pipeline_stage` dùng `BudgetDockerOperator`, image của release Cosmos, UID 10001. RAM/CPU/slot theo stage lấy từ policy dùng chung: ingest 2048 MiB/2 CPU/4 slot, freshness và reconcile 512 MiB/1 CPU/1 slot, build 1024 MiB/1 CPU/2 slot. Xem [quản lý tài nguyên](resources.md) để thêm project hoặc thay ngân sách. Config volume chỉ đọc; artifact volume cho phép ghi. `mount_tmp_dir=False` tránh cố mount đường dẫn tạm của scheduler vào sibling container. Dataset không truyền qua XCom.
 
-`full_refresh=true` chỉ thêm `--full-refresh` vào **dbt build**; nó rebuild incremental Silver từ raw hiện có, không kéo lại toàn bộ version lịch sử ClickHouse. Ingestion vẫn theo snapshot/lookback của loader.
+`full_refresh=true` thêm `--full-refresh` vào lệnh chạy model. Silver incremental được xây lại từ Raw hiện có; ingestion vẫn theo snapshot và lookback.
 
 Nếu ingest/freshness fail, build bị chặn; build fail thì reconcile không chạy. Retry/Clear không rollback những bảng đã commit. Gold chưa publish chung một transaction nên build fail giữa chừng có thể để lại các mart khác phiên bản.
 
@@ -107,7 +108,7 @@ docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml logs -
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml exec -T airflow-scheduler airflow pools list
 ```
 
-**Checkpoint:** bốn task success, artifact của đúng run ghi đủ 31 model/47 data tests đạt và reconcile khớp. Cách nghiệm thu lại bằng verifier và report theo ngày nằm trong [testing guide](testing.md).
+**Checkpoint:** 36 task success ở chế độ Cosmos, artifact cùng run ghi đủ 31 model/47 data test và reconcile khớp. Xem [testing guide](testing.md) để nghiệm thu bằng verifier.
 
 ## 6. Sửa DAG hoặc runtime an toàn
 
@@ -153,7 +154,7 @@ Giữ một DAG vận hành hằng ngày cho luồng hiện tại:
 ```mermaid
 flowchart LR
     I[ingest: ClickHouse vào raw] --> F[freshness]
-    F --> B[build: dbt models và tests]
+    F --> B[Cosmos model tasks và tests]
     B --> R[reconcile raw đến Gold]
     B -.-> M[31 model theo dependency thực tế]
     I -.-> A1[Raw Asset]
@@ -165,12 +166,12 @@ flowchart LR
 | DAG ingestion riêng | Chưa cần; task ingest đã có trong pipeline | Nguồn có lịch/consumer độc lập và đã giải quyết writer coordination |
 | Thêm task build raw | Raw được Python nạp, không phải một tầng dbt cần build lại | Chỉ thêm khi có xử lý raw riêng với hợp đồng/kiểm chứng rõ |
 | Chia build Bronze/Silver/Gold | Chưa tách ba lệnh chỉ để đẹp graph | Cần thiết kế lại test selection: tests đối soát nhiều tầng phải chạy khi đủ model; `dbt build` hiện tự xếp theo dependency |
-| Một task cho từng model | [Cosmos plan](../plans/cosmos.md), để sau recovery/publish Gold | Giữ model graph, tests đa cha, resource pool, artifacts và retry đúng phạm vi |
+| Một task cho từng model | [Cosmos](../plans/cosmos.md) đọc graph từ manifest | Giữ tests đa cha ở cuối graph, resource pool và artifact theo lần thử |
 | DAG backfill/recovery manual | Hướng nâng cấp hữu ích sau fixture của [roadmap](../plans/roadmap.md) | Validate start/end và dùng chung writer lock với DAG thường/CLI; max_active_runs của hai DAG riêng không tự chặn nhau |
 | Thêm Assets | Giữ hai Assets hiện có | Thêm khi có consumer độc lập cần biết dataset nào đã sẵn sàng; không tạo Asset cho mọi bảng chỉ để tăng số lượng |
 
 Assets hiện là metadata cập nhật khi producer success, không tự thay lịch cron, khóa database hoặc khiến Gold publish atomic. Chưa có DAG nào schedule theo chúng. Sau này có thể cho một DAG báo cáo/ML độc lập consume **validated Gold**, kèm aggregate metadata như run_id, watermark và row count khi có nhu cầu; không đưa credentials/dataset thật vào Asset metadata.
 
-Ưu tiên tiếp theo là lookback/backfill → publish Gold nhất quán. Sau đó mới cân nhắc alert khi fail nếu có kênh thông báo được cấu hình, hoặc Cosmos khi cần retry theo model. Retry, timeout, concurrency, pool, stage artifacts và hai Assets đã có trong DAG hiện hành.
+Ưu tiên tiếp theo là publish Gold nhất quán và xử lý correction trong lượt incremental. Có thể cân nhắc alert khi đã cấu hình kênh nhận phù hợp.
 
 Nguồn: [dbt build và dependency order](https://docs.getdbt.com/reference/commands/build), [Airflow Assets](https://airflow.apache.org/docs/apache-airflow/3.3.2/authoring-and-scheduling/assets.html), [deactivation và history](https://airflow.apache.org/docs/apache-airflow/3.3.2/concepts/dags.html#dag-pausing-deactivation-and-deletion).

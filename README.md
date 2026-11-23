@@ -23,15 +23,15 @@ Pipeline học Data Engineering: đọc ClickHouse public, nạp PostgreSQL, bi�
 
 ![LaplapTech: ClickHouse → Airflow runtime → PostgreSQL → Streamlit](assets/data-flow.svg)
 
-Airflow tạo các runtime container theo thứ tự `ingest → freshness → build → reconcile`. Python/dbt CLI chạy trong container; SQL transformation thực thi trong PostgreSQL. Metadata Airflow tách khỏi warehouse raw/Bronze/Silver/Gold. Dashboard đọc Gold và cache 300 giây.
+Airflow tạo các runtime container theo thứ tự `ingest → freshness → Cosmos model tasks → dbt_tests → collect_dbt_results → reconcile`. Cosmos đọc graph từ manifest của release; PostgreSQL thực thi SQL. Metadata Airflow tách khỏi warehouse Raw/Bronze/Silver/Gold. Dashboard đọc Gold và cache 300 giây.
 
-Ingestion snapshot atomic theo từng bảng cho 5 bảng và dedup/upsert event theo ID/version với lookback 2 giờ. Freshness warn 24 giờ/error 48 giờ. Một task lỗi sẽ chặn downstream; Gold chưa có transaction publish chung cho toàn bộ model.
+Ingestion snapshot atomic theo từng bảng cho 5 bảng và dedup/upsert event theo ID/version. Raw và Silver dùng chung cấu hình lookback, mặc định 2 giờ. Freshness warn 24 giờ/error 48 giờ. Một task lỗi sẽ chặn downstream; Gold chưa có transaction publish chung cho toàn bộ model.
 
 [Sơ đồ kiến trúc, ingestion, watermark, dbt và cách xử lý lỗi](docs/architecture/data_flow.md) giải thích từng bước bằng Mermaid. Nguồn logo của ảnh tổng quan ở [tool-logos.json](assets/tool-logos.json).
 
 ## 3. Chạy nhanh bằng Docker
 
-Cần Git, PowerShell, Docker Desktop đang chạy **Linux containers** và credential nguồn ClickHouse public. Runtime đã đóng gói nên không cần tự cài Python/dbt/PostgreSQL trên host để chạy pipeline và dashboard. Hướng dẫn hiện hỗ trợ Windows Docker Desktop; [Docker guide](docs/guides/docker.md) ghi cấu hình RAM/cổng và phạm vi kiểm chứng.
+Cần Git, PowerShell 7, Docker Desktop đang chạy **Linux containers** và credential nguồn ClickHouse public. Runtime đã đóng gói nên không cần tự cài Python/dbt/PostgreSQL trên host để chạy pipeline và dashboard. Hướng dẫn hiện hỗ trợ Windows Docker Desktop; [Docker guide](docs/guides/docker.md) ghi cấu hình RAM/cổng và phạm vi kiểm chứng.
 
 Nếu chưa có repo, mở PowerShell tại thư mục muốn chứa project:
 
@@ -57,7 +57,9 @@ Dataset public vẫn yêu cầu login: `.env.example` đã có host/user/databas
 
 1. Mở [Airflow](http://localhost:8080), đăng nhập bằng `.env` của **platform**.
 2. Unpause `laplaptech_pipeline`, Trigger với `full_refresh=true` khi cần rebuild Silver từ raw.
-3. Đợi cả bốn task success, bật dashboard theo [Docker guide](docs/guides/docker.md) rồi mở [localhost:8501](http://localhost:8501).
+3. Đợi các model, tests, collector và reconcile thành công, bật dashboard theo [Docker guide](docs/guides/docker.md) rồi mở [localhost:8501](http://localhost:8501) hoặc cổng host đã chọn.
+
+Dashboard chỉ cần bật khi xem. Tắt riêng dashboard thì Airflow vẫn chạy lịch **07:00 và 19:00 giờ Việt Nam** nếu DAG đang unpaused và warehouse còn chạy. [Lệnh bật/tắt dashboard](docs/guides/docker.md#bật-tắt-riêng-dashboard).
 
 Các lượt thường để `full_refresh=false`. Khi tạm nghỉ, dùng `.\scripts\Set-LocalStack.ps1 -State Off` từ root repo để tắt Airflow, warehouse và dashboard; `-State On` bật lại Airflow/warehouse, dashboard vẫn bật riêng khi cần. Công tắc này tác động đến toàn bộ Airflow dùng chung, nên khi có project khác tham gia cần kiểm tra run của tất cả project trước khi tắt. Khi Docker/laptop tắt, lịch ETL và dashboard dừng; CI không chạy ETL thay Airflow. Named volumes giữ dữ liệu qua stop/recreate. Hướng dẫn đầy đủ và đăng nhập PostgreSQL: [Docker](docs/guides/docker.md).
 
@@ -76,7 +78,7 @@ README là điểm bắt đầu. Mỗi guide là tài liệu tra cứu cho **m�
 | Hiểu Compose, Dockerfiles, mounts và volumes | [Cấu trúc hạ tầng](infra/README.md) |
 | Hiểu Airflow/PostgreSQL dùng chung, thêm project, bảo trì và dung lượng ổ | [Kiến trúc platform dùng chung](docs/architecture/shared_platform.md) |
 
-Các việc có thể nâng cấp được xếp ở [roadmap](docs/plans/roadmap.md). [Cosmos plan](docs/plans/cosmos.md) là nhánh nghiên cứu để hiển thị từng dbt model trong Airflow, **chưa có trong stack hiện tại**.
+Các việc có thể nâng cấp được xếp ở [roadmap](docs/plans/roadmap.md). [Hướng dẫn Cosmos](docs/plans/cosmos.md) ghi cách phát hành manifest, retry theo model và quay lại luồng cũ.
 
 ## 5. Model và giới hạn
 
@@ -89,7 +91,7 @@ Các việc có thể nâng cấp được xếp ở [roadmap](docs/plans/roadma
 
 Daily KPI dùng ngày server nhận event theo giờ Việt Nam. Cộng daily sessions qua nhiều ngày là **session-days**. Funnel đo reach trong cùng session-day, chưa chứng minh thứ tự chuyển đổi. Search volume không tự chứng minh zero-result/product gap.
 
-Raw không phải immutable history; lookback hữu hạn có thể bỏ sót bản nguồn có timestamp quá cũ. Extraction vẫn giữ DataFrame trong RAM. Bounded historical replay, quarantine và atomic Gold publication chưa được triển khai; xem giới hạn trong [data flow](docs/architecture/data_flow.md).
+Raw không lưu mọi version. Event nằm ngoài lookback có thể phục hồi bằng [lệnh recovery theo khoảng](docs/guides/ingestion.md#4-backfill-event-theo-khoảng-thời-gian) nếu nguồn vẫn còn dữ liệu. Extraction vẫn giữ DataFrame trong RAM. Xem giới hạn về correction incremental, quarantine và Gold publication trong [data flow](docs/architecture/data_flow.md).
 
 ## 6. Kiểm tra hệ thống
 
