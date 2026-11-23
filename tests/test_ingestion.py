@@ -68,6 +68,14 @@ class BatchTests(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_invalid_lookback_fails_before_database_or_source_access(self):
+        for value in ("-1", "3.5", "", "abc", "2147483648"):
+            with self.subTest(value=value), patch.dict(os.environ, {"INGESTION_LOOKBACK_SECONDS": value}):
+                with patch.object(ingestion, "ensure_database_exists") as provision:
+                    with self.assertRaisesRegex(ValueError, "INGESTION_LOOKBACK_SECONDS"):
+                        ingestion.run_pipeline(start_epoch=1, end_epoch=2)
+                    provision.assert_not_called()
+
     def test_password_round_trips_without_url_escaping(self):
         password = "p@ss:/?#%word"
         with patch.dict(os.environ, {"POSTGRES_USER": "test", "POSTGRES_PASSWORD": password}):

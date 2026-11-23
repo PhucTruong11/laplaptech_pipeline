@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL
 
+from ingestion.settings import read_lookback_seconds
+
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 logging.basicConfig(
     level=logging.INFO,
@@ -192,6 +194,7 @@ def extract_incremental(
     if INCREMENTAL_TABLES.get(table_name) != timestamp_col:
         raise ValueError("Bảng hoặc watermark không thuộc cấu hình incremental")
     validate_range(start_epoch, end_epoch)
+    lookback = read_lookback_seconds()
     query = f"SELECT * FROM {table_name}"
     parameters = {}
     if start_epoch is not None:
@@ -206,9 +209,8 @@ def extract_incremental(
                 )).scalar()
         if max_ts is not None:
             max_epoch = float(max_ts)
-            lookback = int(os.getenv("INGESTION_LOOKBACK_SECONDS") or "7200")
-            if not math.isfinite(max_epoch) or lookback < 0:
-                raise ValueError("Watermark không hữu hạn hoặc lookback âm")
+            if not math.isfinite(max_epoch):
+                raise ValueError("Watermark must be finite")
             query += f" WHERE {timestamp_col} >= {{watermark:Float64}}"
             parameters = {"watermark": max_epoch - lookback}
     # Lỗi quyền/kết nối khi đọc MAX phải fail, không âm thầm full extraction.
@@ -239,14 +241,15 @@ def load_to_postgres(
 
 def load_incremental_to_postgres(
     df: pd.DataFrame, table_name: str, engine, primary_key: str = "id"
-):
+) -> dict[str, int]:
     if table_name not in INCREMENTAL_TABLES or primary_key != "id":
         raise ValueError("Loader event chỉ hỗ trợ bảng cấu hình sẵn với khóa id")
     ts_col = INCREMENTAL_TABLES[table_name]
     batch = prepare_event_batch(df, primary_key, ts_col)
+    counts = {"source_rows": len(df), "source_ids": len(batch), "older_ids_skipped": 0, "written_ids": len(batch)}
     if batch.empty:
         logger.info("Không có event cần nạp: %s", table_name)
-        return
+        return counts
     with engine.begin() as conn:
         lock_raw_table(conn, table_name)
         if not inspect(conn).has_table(table_name, schema=RAW_SCHEMA):
@@ -260,10 +263,12 @@ def load_incremental_to_postgres(
             columns = ", ".join(quote_ident(conn, c) for c in batch.columns)
             conn.execute(text(f"CREATE TABLE {staging} (LIKE {target})"))
             write_frame(batch, stg_name, conn)
-            conn.execute(text(f"""
+            older = conn.execute(text(f"""
                 DELETE FROM {staging} s USING {target} t
                 WHERE s.{pk} = t.{pk} AND s.{ts} < t.{ts}
-            """))
+            """)).rowcount
+            counts["older_ids_skipped"] = older
+            counts["written_ids"] -= older
             staged_row = ", ".join(f"s.{quote_ident(conn, c)}" for c in batch.columns)
             target_row = ", ".join(f"t.{quote_ident(conn, c)}" for c in batch.columns)
             conflict = conn.execute(text(f"""
@@ -279,10 +284,12 @@ def load_incremental_to_postgres(
             conn.execute(text(f"INSERT INTO {target} ({columns}) SELECT {columns} FROM {staging}"))
             conn.execute(text(f"DROP TABLE {staging}"))
     logger.info("Commit batch %s: %s ID đầu vào", table_name, len(batch))
+    return counts
 
 
-def run_pipeline(*, start_epoch: float | None = None, end_epoch: float | None = None):
+def run_pipeline(*, start_epoch: float | None = None, end_epoch: float | None = None) -> dict:
     validate_range(start_epoch, end_epoch)
+    report = {"lookback_seconds": read_lookback_seconds(), "events": {}}
     started = datetime.now(timezone.utc)
     ensure_database_exists()
     engine = get_postgres_engine()
@@ -298,13 +305,14 @@ def run_pipeline(*, start_epoch: float | None = None, end_epoch: float | None = 
                 ch_client, table_name, timestamp_col, engine,
                 start_epoch=start_epoch, end_epoch=end_epoch,
             )
-            load_incremental_to_postgres(frame, table_name, engine)
+            report["events"][table_name] = load_incremental_to_postgres(frame, table_name, engine)
         with engine.connect() as conn:
             for table in FULL_REFRESH_TABLES + list(INCREMENTAL_TABLES):
                 if inspect(conn).has_table(table, schema=RAW_SCHEMA):
                     count = conn.execute(text(f"SELECT COUNT(*) FROM {raw_relation(conn, table)}")).scalar()
                     logger.info("%s: %s dòng", table, count)
         logger.info("Ingestion hoàn tất trong %s", datetime.now(timezone.utc) - started)
+        return report
     finally:
         if ch_client is not None:
             try:
@@ -330,9 +338,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start", type=parse_epoch, help="Đầu khoảng backfill (bao gồm)")
     parser.add_argument("--end", type=parse_epoch, help="Cuối khoảng backfill (không bao gồm)")
+    parser.add_argument("--backfill-report", type=Path, help="Write committed batch counts for a bounded backfill")
     args = parser.parse_args()
+    if args.backfill_report is not None and (args.start is None or args.end is None):
+        parser.error("--backfill-report requires --start and --end")
     try:
-        run_pipeline(start_epoch=args.start, end_epoch=args.end)
+        report = run_pipeline(start_epoch=args.start, end_epoch=args.end)
+        if args.backfill_report is not None:
+            args.backfill_report.write_text(json.dumps(report, indent=2), encoding="utf-8")
     except Exception as exc:
         logger.error("Pipeline thất bại: %s", exc)
         return 1

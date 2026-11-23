@@ -2,9 +2,10 @@
 import os
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from scripts import run_airflow_stage as stage
+from scripts.recover_pipeline import execute_recovery
 from scripts.verify_local_stack import validated_timetable
 
 
@@ -45,6 +46,27 @@ class LocalRuntimeTests(unittest.TestCase):
             env = stage.lab_environment()
         self.assertEqual(env['POSTGRES_HOST'], 'warehouse-laplaptech')
         self.assertNotIn('UNRELATED_SECRET', env)
+
+
+class RecoveryTests(unittest.TestCase):
+    start = '2026-11-01T00:00:00+07:00'
+    end = '2026-11-02T00:00:00+07:00'
+
+    def test_recovery_stops_at_failed_full_build(self):
+        execute = Mock(side_effect=[0, 0, 17])
+        self.assertEqual(execute_recovery(self.start, self.end, execute), 17)
+        ingest, fresh, build = execute.call_args_list
+        self.assertEqual(ingest.args, ('ingest',))
+        self.assertEqual(ingest.kwargs, {'backfill': (self.start, self.end)})
+        self.assertEqual(fresh.args, ('freshness',))
+        self.assertEqual(build.args, ('build',))
+        self.assertEqual(build.kwargs, {'full_refresh': True})
+
+    def test_invalid_recovery_range_never_calls_a_stage(self):
+        execute = Mock()
+        with self.assertRaises(ValueError):
+            execute_recovery(self.end, self.start, execute)
+        execute.assert_not_called()
 
 
 class DeployedScheduleTests(unittest.TestCase):

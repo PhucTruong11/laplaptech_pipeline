@@ -13,6 +13,7 @@ from uuid import uuid4
 from dotenv import dotenv_values
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
+from ingestion.settings import LOOKBACK_KEY, read_lookback_seconds
 
 
 def lab_environment() -> dict[str, str]:
@@ -43,18 +44,22 @@ def lab_environment() -> dict[str, str]:
     if not str(threads).isdigit() or not 1 <= int(threads) <= 16:
         raise RuntimeError('DBT_THREADS must be an integer from 1 to 16')
     env['DBT_THREADS'] = str(threads)
+    env[LOOKBACK_KEY] = str(read_lookback_seconds(env))
     return env
 
 
-def verify_database(env: dict[str, str]) -> None:
-    url = URL.create(
+def warehouse_url(env: dict[str, str]) -> URL:
+    return URL.create(
         'postgresql+psycopg2',
         username=env['POSTGRES_USER'], password=env['POSTGRES_PASSWORD'],
         host=env['POSTGRES_HOST'], port=int(env['POSTGRES_PORT']),
         database=env['POSTGRES_DATABASE'],
         query={'sslmode': env['POSTGRES_SSLMODE']},
     )
-    engine = create_engine(url, connect_args={'connect_timeout': 10})
+
+
+def verify_database(env: dict[str, str]) -> None:
+    engine = create_engine(warehouse_url(env), connect_args={'connect_timeout': 10})
     try:
         with engine.connect() as connection:
             database, username, admin = connection.execute(
@@ -66,9 +71,14 @@ def verify_database(env: dict[str, str]) -> None:
         engine.dispose()
 
 
-def stage_command(stage: str, output: Path, *, full_refresh: bool = False) -> list[str]:
+def stage_command(stage: str, output: Path, *, full_refresh: bool = False,
+                  backfill: tuple[str, str] | None = None) -> list[str]:
     if stage == 'ingest':
-        return [sys.executable, '-m', 'ingestion.clickhouse_to_postgres']
+        command = [sys.executable, '-m', 'ingestion.clickhouse_to_postgres']
+        if backfill is not None:
+            command.extend(['--start', backfill[0], '--end', backfill[1],
+                            '--backfill-report', str(output / 'backfill.json')])
+        return command
     arguments = ['source', 'freshness'] if stage == 'freshness' else ['build']
     if full_refresh:
         arguments.append('--full-refresh')
@@ -137,23 +147,18 @@ def reconcile_pipeline(env: dict[str, str]) -> dict:
         engine.dispose()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('stage', choices=['preflight', 'ingest', 'freshness', 'build', 'reconcile'])
-    parser.add_argument('--full-refresh', action='store_true', help='Rebuild dbt incremental models; build stage only')
-    args = parser.parse_args()
-    if args.full_refresh and args.stage != 'build':
-        parser.error('--full-refresh is only supported by the build stage')
-    run_id = os.environ.get('PIPELINE_RUN_ID') or 'cli-' + uuid4().hex
+def run_stage(stage: str, *, full_refresh: bool = False, backfill: tuple[str, str] | None = None,
+              run_id: str | None = None, env: dict[str, str] | None = None) -> int:
+    run_id = run_id or os.environ.get('PIPELINE_RUN_ID') or 'cli-' + uuid4().hex
     run_key = hashlib.sha256(run_id.encode()).hexdigest()[:20]
     attempt = os.environ.get('PIPELINE_ATTEMPT', '1')
     if not attempt.isdigit():
         raise RuntimeError('PIPELINE_ATTEMPT must be numeric')
-    output = (Path('/artifacts') / run_key / args.stage /
+    output = (Path('/artifacts') / run_key / stage /
               f'attempt-{attempt}-{uuid4().hex[:8]}')
     output.mkdir(parents=True, exist_ok=False)
     report = {
-        'run_id': run_id, 'stage': args.stage, 'attempt': int(attempt),
+        'run_id': run_id, 'stage': stage, 'attempt': int(attempt),
         'started_at': datetime.now(timezone.utc).isoformat(),
         'status': 'failed', 'exit_code': 1,
     }
@@ -161,30 +166,48 @@ def main() -> int:
     report['resource_limits'] = {name: (cgroup/name).read_text().strip()
                                  for name in ('memory.max', 'cpu.max', 'pids.max') if (cgroup/name).is_file()}
     try:
-        env = lab_environment()
+        if env is None:
+            env = lab_environment()
         verify_database(env)  # Read-only target check before every stage.
+        report['lookback_seconds'] = read_lookback_seconds(env)
+        if backfill is not None:
+            report['backfill_range'] = {'start_inclusive': backfill[0], 'end_exclusive': backfill[1]}
+        if stage == 'build':
+            report['full_refresh'] = full_refresh
         print('Target verified: warehouse-laplaptech / laplaptech_pipeline_dev', flush=True)
-        if args.stage == 'ingest':
+        if stage == 'ingest':
             password = env.get('CLICKHOUSE_PASSWORD', '')
             if not password or password == 'REPLACE_WITH_PUBLIC_DATASET_PASSWORD':
                 raise RuntimeError('Fill the public ClickHouse login before ingestion')
-        if args.stage == 'preflight':
+        if stage == 'preflight':
             code = 0
-        elif args.stage == 'reconcile':
+        elif stage == 'reconcile':
             report['reconciliation'] = reconcile_pipeline(env)
             print(json.dumps(report['reconciliation'], default=str), flush=True)
             code = 0
         else:
             code = subprocess.run(
-                stage_command(args.stage, output, full_refresh=args.full_refresh),
+                stage_command(stage, output, full_refresh=full_refresh, backfill=backfill),
                 cwd='/app', env=env, check=False,
             ).returncode
+        if backfill is not None and code == 0:
+            report['backfill'] = json.loads((output / 'backfill.json').read_text(encoding='utf-8'))
         report.update(status='success' if code == 0 else 'failed', exit_code=code)
         return code
     finally:
         report['finished_at'] = datetime.now(timezone.utc).isoformat()
         (output / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
         print(f'Stage artifacts: {output}', flush=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('stage', choices=['preflight', 'ingest', 'freshness', 'build', 'reconcile'])
+    parser.add_argument('--full-refresh', action='store_true', help='Rebuild dbt incremental models; build stage only')
+    args = parser.parse_args()
+    if args.full_refresh and args.stage != 'build':
+        parser.error('--full-refresh is only supported by the build stage')
+    return run_stage(args.stage, full_refresh=args.full_refresh)
 
 
 if __name__ == '__main__':
