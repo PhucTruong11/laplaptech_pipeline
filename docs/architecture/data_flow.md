@@ -90,14 +90,14 @@ sequenceDiagram
     S->>S: Cập nhật state, trả pool slots
 ```
 
-Config và artifacts trong sơ đồ là hai volume riêng: runtime chỉ đọc config và được ghi artifacts. Riêng stage ingest còn đọc ClickHouse trước khi nạp PostgreSQL. Source: [DAG](../../infra/laplaptech/dags/laplaptech_pipeline.py) và [stage entrypoint](../../scripts/run_airflow_stage.py). `preflight` là chế độ entrypoint kiểm target, **không phải task thứ năm** của DAG. Kill đột ngột/OOM có thể ngăn chương trình ghi report cuối; cần đọc thêm Airflow/Docker logs.
+Runtime đọc config từ một volume và ghi artifacts vào volume riêng. Stage ingest đọc ClickHouse rồi nạp PostgreSQL. Chế độ `preflight` ở entrypoint kiểm tra đích database. Nếu container dừng đột ngột hoặc hết RAM trước khi ghi report, xem Airflow và Docker logs. [DAG](../../infra/laplaptech/dags/laplaptech_pipeline.py) · [Stage entrypoint](../../scripts/run_airflow_stage.py).
 
 ### 1.4. DAG: lịch, dependency, retry và Assets
 
 ```mermaid
 flowchart TB
-    T["07:00 / 19:00 giờ Việt Nam<br/>hoặc Trigger thủ công"] --> I["ingest"]
-    I --> F["freshness"] --> B["build"] --> R["reconcile"]
+    S["07:00 / 19:00 giờ Việt Nam<br/>hoặc Trigger thủ công"] --> I["ingest"]
+    I --> F["freshness"] --> B["Cosmos: 31 model tasks"] --> T["dbt_tests"] --> C["collect_dbt_results"] --> R["reconcile"]
     I -. "thành công" .-> RAW["Asset: LaplapTech raw"]
     R -. "thành công" .-> GOLD["Asset: validated Gold"]
 ```
@@ -106,12 +106,12 @@ flowchart TB
 |---|---|---|---|---|
 | `ingest` | Python: 5 snapshot + event incremental | 45 phút | 1 lần, cách 2 phút | 2048 MiB / 2 CPU |
 | `freshness` | `dbt source freshness` | 5 phút | 0 | 512 MiB / 1 CPU |
-| `build` | `dbt build`, có thể thêm `--full-refresh` | 30 phút | 1 lần, cách 2 phút | 1024 MiB / 1 CPU |
+| `transform` | Một `dbt run` cho mỗi model, hỗ trợ `--full-refresh` | 30 phút/model | 1 lần, cách 2 phút | 1024 MiB / 1 CPU |
 | `reconcile` | SQL đọc/đối soát inventory và totals | 10 phút | 0 | 512 MiB / 1 CPU |
 
 Giá trị trên là snapshot cấu hình ngày đối chiếu; `resources.json` của platform mới quyết định limits thực tế. DAG dùng `Asia/Ho_Chi_Minh`, `catchup=False`, tối đa một active run và một active task; timeout cả run là hai giờ. Laptop nghỉ không làm scheduler tự tạo đầy đủ mọi lượt đã bỏ qua. DAG mới tạo ở trạng thái paused.
 
-Param `full_refresh=true` chỉ thay lệnh của task build; ingest vẫn chạy theo chế độ thông thường. DAG chưa có param `start/end` cho historical backfill. Retry một task không rollback các stage/model đã commit trước đó.
+Param `full_refresh=true` thêm cờ vào các model task; ingest vẫn chạy theo chế độ thông thường. DAG chưa có param `start/end` cho historical backfill. Retry một task không rollback các stage/model đã commit trước đó.
 
 Hai Assets là metadata về kết quả task. Raw Asset phát khi cả task ingest thành công; Gold Asset phát sau reconcile thành công. Các khai báo này không chứa dataset, không thay transaction database và không tự khóa dashboard. Lịch DAG hiện vẫn theo cron; chưa có consumer DAG được kích hoạt theo Asset. `platform_smoke_test` là diagnostic tùy chọn ngoài thư mục DAG mặc định, không nằm trong luồng dữ liệu nghiệp vụ.
 
@@ -131,7 +131,7 @@ flowchart TB
 
 | Loại | Cụ thể | Khi sửa/dừng thì sao? |
 |---|---|---|
-| Runtime image | `laplaptech-runtime:local-v1`, [Dockerfile](../../infra/laplaptech/runtime.Dockerfile) | Ingestion/dbt/entrypoint được COPY; sửa code phải rebuild image |
+| Runtime image | `laplaptech-runtime:cosmos-<SHA>`, [Dockerfile](../../infra/laplaptech/runtime.Dockerfile) | Ingestion/dbt/entrypoint được COPY; sửa code phải rebuild image |
 | Dashboard image | `laplaptech-dashboard:local-v1`, [Dockerfile](../../infra/laplaptech/dashboard.Dockerfile) | Kế thừa runtime, thêm app; sửa app phải rebuild dashboard |
 | DAG bind mount | Source `infra/laplaptech/dags` mount read-only vào Airflow | Sửa DAG cần đợi parse lại; không cần COPY bản trùng ID |
 | Config volume | `laplaptech-lab-config`, file `/run/laplaptech/pipeline.env` | Runtime chỉ đọc; sửa root `.env` không tự đồng bộ volume |
@@ -260,15 +260,15 @@ flowchart TB
     CH[("ClickHouse event")]
     CH -->|"MAX raw trừ lookback env"| RAW[("raw event")]
     RAW --> BR["Bronze view"]
-    BR -->|"MAX Silver trừ literal 2 giờ"| SIL[("Silver incremental")]
+    BR -->|"MAX Silver trừ cùng số giây lookback"| SIL[("Silver incremental")]
     SIL --> GOLD["Gold tables"]
     BF["CLI backfill nguồn theo khoảng"] -. "bỏ qua cửa sổ raw" .-> RAW
     FULL["dbt full-refresh từ raw"] -. "bỏ qua cửa sổ Silver" .-> SIL
 ```
 
-Đổi lookback ingestion hiện **không tự đổi** literal `INTERVAL '2 hour'` trong Silver. Event được backfill vào raw nhưng nằm ngoài cửa sổ Silver có thể chưa đi tới Gold nếu chỉ build incremental. Ngược lại, full-refresh dbt không thể phục hồi event chưa có trong raw.
+Raw và Silver dùng chung `INGESTION_LOOKBACK_SECONDS`, mặc định 7200, với MAX riêng ở từng tầng. Event được backfill vào Raw nhưng nằm ngoài cửa sổ Silver có thể chưa tới Gold qua build incremental. [Lệnh recovery](../guides/ingestion.md#4-backfill-event-theo-khoảng-thời-gian) nạp khoảng cần phục hồi rồi full build từ Raw và đối soát toàn graph.
 
-Một bản Silver từng hợp lệ nhưng raw được sửa thành thiếu name/session còn có thể sót trong incremental target: row mới bị lọc trước bước cập nhật. Full-refresh hiện là đường xây lại theo raw; quy trình recovery thống nhất và fixtures cho tình huống này còn ở [roadmap mục 2](../plans/roadmap.md#2-lookback-thống-nhất-và-recovery-backfill).
+Một bản Silver từng hợp lệ nhưng Raw được sửa thành thiếu name/session còn có thể sót trong incremental target vì row mới bị lọc trước bước cập nhật. Full rebuild trong recovery loại bản cũ khi correction đã có trong Raw. Xử lý invalidation ngay trong lượt incremental là việc còn lại ở [roadmap mục 2](../plans/roadmap.md#2-lookback-thống-nhất-và-recovery-backfill).
 
 ## 3. dbt: từ raw tới dashboard
 
@@ -354,7 +354,7 @@ Grain cần được giữ khi join/tổng hợp. Cùng một session qua nửa 
 
 `dbt source freshness` kiểm **raw đã nạp**, không query trực tiếp ClickHouse: MAX timestamp event quá 24 giờ thì warn, quá 48 giờ thì error và chặn build. Hiện chỉ source event có cấu hình freshness này; nó không đo đầy đủ năm snapshot hay độ trễ từng event.
 
-`dbt build` materialize models và chạy tests theo dependency. Test upstream thất bại có thể làm downstream bị skip; các model đã commit trước lỗi không tự rollback chung. Sau full build đã pass không cần chạy thêm run/test chỉ để lặp đúng công việc đó.
+Cosmos gọi `dbt run` cho từng model theo dependency trong manifest. Một task `dbt test` chạy sau toàn graph để kiểm các test nhiều đầu vào. Nếu test lỗi, collector và reconcile bị chặn; những bảng đã commit vẫn có thể tồn tại. Recovery và fixture dùng `dbt build` toàn graph.
 
 | Lớp kiểm tra | Bằng chứng/điều kiện hiện tại | Không tự chứng minh |
 |---|---|---|
@@ -382,6 +382,8 @@ flowchart TB
 
 [data.py](../../streamlit_app/data.py) chỉ nhận tên model trong allowlist, dùng SQLAlchemy pool nhỏ và SELECT Gold. [app.py](../../streamlit_app/app.py) đọc đủ 12 bảng, hiển thị năm tab. Date filter ở Overview không tự biến các Gold all-time thành metric của cùng khoảng ngày; các tab khác có ngữ cảnh riêng. App có thời điểm event mới nhất, nhắc lịch batch/cache và nút refresh cache.
 
+**Today** tính theo ngày server nhận sự kiện ở múi giờ Việt Nam. Nếu ngày đó chưa có sự kiện trong Gold, KPI đếm hiển thị 0 và tỷ lệ thiếu mẫu số hiển thị `N/A`. **Refresh data** xóa cache để đọc lại Gold. Pipeline vẫn cập nhật warehouse theo lịch Airflow trong lúc dashboard tắt.
+
 **Gold chưa có cơ chế publish nguyên khối.** dbt xây từng bảng, dashboard có thể query trong lúc build; nếu model sau lỗi thì một số Gold đã mới, số khác còn cũ. Reconcile/Gold Asset không làm các bảng đó quay lại phiên bản trước. Cache từng bảng còn có thể giữ các phiên bản khác nhau qua nhiều request. Thiết kế candidate → validate → publish và cache theo version nằm ở [roadmap mục 3](../plans/roadmap.md#3-publish-gold-nhất-quán-và-cache-theo-phiên-bản).
 
 ### 3.7. CI, fixture và artifacts: kiểm chứng khác vận hành
@@ -400,7 +402,7 @@ flowchart TB
 
 [validate.yml](../../.github/workflows/validate.yml) không cần source credential: fixture thay client nguồn, còn loader/PostgreSQL/dbt SQL là thật. DB test là `laplaptech_pipeline_test`; [runner](../../scripts/run_dev_pipeline.py) chặn fixture/reset vào database vận hành. CI không xác nhận Docker Desktop, socket, shared mounts và dataset thật đang hoạt động; cần [system verifier](../../scripts/verify_local_stack.py) cho phạm vi đó. `dbt parse` chỉ kiểm cấu trúc/compile metadata, chưa thực thi SQL trên dữ liệu.
 
-Runtime artifacts nằm dưới `/artifacts/<run-hash>/<stage>/attempt-<n>-<uuid>/`: mỗi attempt có report trạng thái/thời gian/cgroup limits; dbt stages thêm target/logs, manifest/run results hoặc freshness results tùy lệnh. Container tự xóa nhưng volume giữ bằng chứng. Airflow logs phục vụ đọc lỗi task; dbt docs/lineage giúp xem dependency. Artifact lịch sử cần đọc đúng run/attempt, không coi file cũ là xác nhận lượt mới.
+Runtime giữ artifact theo run và từng attempt. Model Cosmos lưu dưới `/artifacts/<run-hash>/cosmos/<model-id>/`. Collector tổng hợp ra `cosmos-summary.json` sau khi đủ model/test của release. Ingestion, freshness, reconcile và luồng monolith vẫn dùng đường dẫn theo stage. [Hướng dẫn Cosmos](../plans/cosmos.md) có quy trình đọc lỗi và retry.
 
 ## 4. Khi lỗi thì dữ liệu ở trạng thái nào?
 
@@ -441,7 +443,7 @@ flowchart TB
 | OOM/exit 137 hoặc timeout | Đối chiếu logs, cgroup và kích thước nguồn; chunk insert không giải quyết toàn bộ extraction RAM |
 | Ổ đĩa tăng dần | Đo logs/artifacts/images/volumes; retention chưa tự động, không prune volumes tùy tiện |
 
-Trước recovery phải kiểm writer của cả DAG lẫn CLI, pause/drain đúng phạm vi, giữ baseline và backup. `stop` giữ volumes; volume còn tồn tại không thay thế bài thử restore. Recovery end-to-end chuẩn hóa, Gold publication, data contracts, extraction streaming, lịch sử catalog và Cosmos đều có checkpoint riêng trong [roadmap](../plans/roadmap.md).
+Trước recovery phải kiểm writer của cả DAG lẫn CLI, pause/drain đúng phạm vi, giữ baseline và backup. Lệnh recovery chạy thủ công trong cửa sổ scheduler tắt và lưu report theo run. Gold publication, data contracts, extraction streaming, lịch sử catalog và consumer theo Asset có checkpoint riêng trong [roadmap](../plans/roadmap.md).
 
 ## 5. Đi đâu tiếp?
 

@@ -9,7 +9,6 @@ import unittest
 
 POWERSHELL = shutil.which('pwsh') or shutil.which('powershell')
 PROJECT = Path(__file__).resolve().parents[1]
-BOOTSTRAP = PROJECT/'scripts/Start-LocalStack.ps1'
 HARNESS = r'''
 $ErrorActionPreference = 'Stop'
 function global:docker {
@@ -28,6 +27,11 @@ function global:docker {
         return (ConvertTo-Json -InputObject @(@{dag_id='laplaptech_pipeline';is_paused=($env:BOOTSTRAP_INITIAL_PAUSE -eq '1')}, @{dag_id='future_project';is_paused=($env:BOOTSTRAP_OTHER_UNPAUSED -ne '1')}) -Compress)
     }
     if ($joined.Contains('SELECT count(*) FROM dag_run')) { return $env:BOOTSTRAP_ACTIVE_RUNS }
+    if ($joined.Contains('FROM serialized_dag')) { return 't' }
+    if ($args[0] -eq 'create') { return 'fixture-runtime' }
+    if ($args[0] -eq 'cp' -and $args[1] -eq 'fixture-runtime:/app/cosmos/manifest.json') {
+        [IO.File]::WriteAllText($args[2], '{"nodes":{"model.test.a":{"resource_type":"model"},"test.test.a":{"resource_type":"test"}}}')
+    }
     if ($args[0] -eq 'build' -and $env:BOOTSTRAP_FAIL_BUILD -eq '1') { $global:LASTEXITCODE = 27 }
 }
 try {
@@ -38,6 +42,15 @@ try {
 '''
 
 
+def bootstrap_fixture(root: Path) -> Path:
+    project = root / 'project'
+    (project / 'scripts').mkdir(parents=True)
+    shutil.copytree(PROJECT / 'infra/airflow-platform', project / 'infra/airflow-platform')
+    for script in ('Start-LocalStack.ps1', 'Publish-CosmosRelease.ps1'):
+        shutil.copyfile(PROJECT / 'scripts' / script, project / 'scripts' / script)
+    return project
+
+
 @unittest.skipUnless(POWERSHELL, 'PowerShell is required')
 class BootstrapCoordinationTests(unittest.TestCase):
     def invoke_bootstrap(self, *, active_runs=0, initially_paused=False, fail_build=False,
@@ -46,6 +59,7 @@ class BootstrapCoordinationTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix='laplaptech-bootstrap-test-')
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
+        project = bootstrap_fixture(root)
         platform = root/'platform'
         platform.mkdir()
         template = PROJECT/'infra/airflow-platform'
@@ -61,7 +75,7 @@ class BootstrapCoordinationTests(unittest.TestCase):
         for name in ('budget_docker.py','platform_resource_policy.py'):
             (platform/'dags'/name).write_text('# platform-owned custom implementation\n')
         original = ('AIRFLOW_ADMIN_PASSWORD=test-key-preserved\nWAREHOUSE_PASSWORD=fake-admin-preserved\n'
-                    f'LAPLAPTECH_PROJECT_DIR={PROJECT.as_posix()}\n'
+                    f'LAPLAPTECH_PROJECT_DIR={project.as_posix()}\n'
                     'WAREHOUSE_HOST_PORT=55434\nDASHBOARD_PORT=8501\n')
         (platform/'.env').write_text(original)
         sentinels = {}
@@ -77,7 +91,7 @@ class BootstrapCoordinationTests(unittest.TestCase):
         harness = root/'harness.ps1'
         harness.write_text(HARNESS)
         trace = root/'trace.jsonl'
-        env = {**os.environ, 'BOOTSTRAP_SCRIPT':str(BOOTSTRAP), 'BOOTSTRAP_PLATFORM':str(platform),
+        env = {**os.environ, 'BOOTSTRAP_SCRIPT':str(project/'scripts/Start-LocalStack.ps1'), 'BOOTSTRAP_PLATFORM':str(platform),
                'BOOTSTRAP_SOURCE':str(source),'BOOTSTRAP_TRACE':str(trace),
                'BOOTSTRAP_ACTIVE_RUNS':str(active_runs), 'BOOTSTRAP_INITIAL_PAUSE':str(int(initially_paused)),
                'BOOTSTRAP_FAIL_BUILD':str(int(fail_build)), 'BOOTSTRAP_ORPHAN_TASK':str(int(orphan_task)),
@@ -150,13 +164,14 @@ class BootstrapCoordinationTests(unittest.TestCase):
     def test_explicit_initialization_builds_complete_standalone_config(self):
         with tempfile.TemporaryDirectory(prefix='laplaptech-bootstrap-test-') as directory:
             root=Path(directory)
+            project=bootstrap_fixture(root)
             platform=root/'new-platform'
             source=root/'source.env'
             source.write_text('CLICKHOUSE_PASSWORD=fake-source\n')
             harness=root/'harness.ps1'
             harness.write_text(HARNESS)
             trace=root/'trace.jsonl'
-            env={**os.environ,'BOOTSTRAP_SCRIPT':str(BOOTSTRAP),'BOOTSTRAP_PLATFORM':str(platform),
+            env={**os.environ,'BOOTSTRAP_SCRIPT':str(project/'scripts/Start-LocalStack.ps1'),'BOOTSTRAP_PLATFORM':str(platform),
                  'BOOTSTRAP_SOURCE':str(source),'BOOTSTRAP_TRACE':str(trace),
                  'BOOTSTRAP_INITIALIZE':'1','BOOTSTRAP_NO_METADATA':'1','BOOTSTRAP_ACTIVE_RUNS':'0',
                  'BOOTSTRAP_FAIL_BUILD':'0','BOOTSTRAP_ORPHAN_TASK':'0','BOOTSTRAP_INITIAL_PAUSE':'1'}
@@ -170,6 +185,13 @@ class BootstrapCoordinationTests(unittest.TestCase):
             self.assertTrue((platform/'AGENTS.md').is_file())
             self.assertTrue((platform/'diagnostics/platform_smoke_test.py').is_file())
             self.assertFalse((platform/'dags/platform_smoke_test.py').exists())
+            release = project/'infra/laplaptech/dags/.cosmos'
+            self.assertEqual((release/'mode').read_text(), 'cosmos')
+            self.assertTrue((release/'manifest.json').is_file())
+            calls = [json.loads(line) for line in trace.read_text().splitlines()]
+            tag = next(i for i, call in enumerate(calls) if call[0] == 'tag')
+            parse_check = next(i for i, call in enumerate(calls) if 'FROM serialized_dag' in call[-1])
+            self.assertLess(tag, parse_check)
 
 
 if __name__=='__main__':

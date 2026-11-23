@@ -23,8 +23,8 @@ $dbt = '.\.venv\Scripts\dbt.exe'
 | PostgreSQL trên host | `127.0.0.1:55434/laplaptech_pipeline_dev`, user `laplaptech_pipeline` |
 | PostgreSQL trong task | `warehouse-laplaptech:5432/laplaptech_pipeline_dev` |
 | SSL / tạo DB | `POSTGRES_SSLMODE=prefer`, `POSTGRES_CREATE_DATABASE=false`; Compose tạo DB |
-| Lookback | `INGESTION_LOOKBACK_SECONDS=7200`, khớp Silver hiện tại |
-| Source | `CLICKHOUSE_*` trong root `.env`; public source port 80 dùng `CLICKHOUSE_SECURE=false` |
+| Lookback Raw và Silver | Cùng `INGESTION_LOOKBACK_SECONDS=7200`, mỗi tầng có MAX timestamp riêng |
+| Source | `CLICKHOUSE_*` trong root `.env`; nguồn công khai dùng HTTPS với `CLICKHOUSE_PORT=443` và `CLICKHOUSE_SECURE=true` |
 
 Trước mọi lệnh ghi, pause `laplaptech_pipeline` trong Airflow và đợi hết queued/running runs. Kiểm tra root `.env` trỏ đúng warehouse, không chạy writer khác cùng lúc. Các lệnh dùng dotenv `--override` để nạp rõ file này, tránh biến PostgreSQL cũ trong shell.
 
@@ -50,27 +50,20 @@ Sau ingestion, dùng [dbt guide](dbt.md) để chạy freshness/build và đối
 
 ## 4. Backfill event theo khoảng thời gian
 
-Sau khi hoàn tất mục 2, chạy khoảng cần nạp:
+`Invoke-LocalRecovery.ps1` chạy `ingest [start,end) → freshness → dbt build --full-refresh → reconcile` trên warehouse Docker. Chọn mốc theo **server-received timestamp**, nhập hai timestamp ISO-8601 có timezone. Khoảng bao gồm `start` và loại `end`. Năm bảng catalog vẫn refresh theo snapshot hiện tại, nên recovery chạy toàn bộ graph.
 
-```powershell
-& $python -m dotenv -f .env run --override -- $python -m ingestion.clickhouse_to_postgres --start '2026-10-01T00:00:00+07:00' --end '2026-10-02T00:00:00+07:00'
-if ($LASTEXITCODE -ne 0) { throw 'Backfill failed; inspect ingestion logs before continuing.' }
-```
+1. Ghi lại trạng thái pause, khoảng cần phục hồi và các ID/version mong đợi. Dùng [quy trình backup](docker.md#7-artifacts-và-backup) trước lượt ghi lịch sử.
+2. Đợi các lượt Airflow hoàn tất, pause `laplaptech_pipeline`, kiểm tra toàn platform đã drain và không còn CLI writer. Dừng scheduler bằng `docker stop --timeout 60 airflow-platform-airflow-scheduler-1`. Giữ metadata và warehouse chạy. Lịch của mọi DAG dùng chung sẽ tạm dừng trong cửa sổ này.
+3. Dùng PowerShell từ root repo. Lệnh đọc registry và audit tài nguyên trước khi chạy. Dùng Python đã có trên host, hoặc truyền `-Python` với đường dẫn Python trong venv.
 
-Khoảng **[start, end)** dùng server-received timestamp, bắt buộc đủ hai mốc có timezone. Backfill bỏ qua MAX watermark của đích cho event; dimension vẫn lấy snapshot hiện tại.
+   ```powershell
+   .\scripts\Invoke-LocalRecovery.ps1 -Start '2026-10-01T00:00:00+07:00' -End '2026-10-02T00:00:00+07:00'
+   ```
 
-Dữ liệu raw cũ hơn lookback Silver cần rebuild Silver event và downstream. Trong cùng phiên và target đã kiểm tra:
+4. Đọc `recovery.json` và report từng stage tại đường dẫn `/artifacts/...` in ra, trong volume `laplaptech-lab-artifacts`. So sánh counts/watermark trước–sau, số ID tải từ nguồn, số bản cũ được giữ ngoài ghi đè, kết quả dbt test và đối soát Gold. `written_ids` gồm cả ID nạp lại, nên không dùng số này như số event mới. Kiểm tra ID/version cần khôi phục nếu nguồn còn có dữ liệu, rồi kiểm dashboard đọc Gold.
+5. Sau khi đã kiểm chứng, chạy `docker start airflow-platform-airflow-scheduler-1` và khôi phục đúng trạng thái pause trước đó. Nếu lỗi, đọc report của stage đầu tiên thất bại và giữ LapLapTech paused trong lúc xử lý. Có thể chạy lại cùng khoảng sau khi sửa lỗi.
 
-```powershell
-$output = Join-Path (Get-Location).Path ('scratch/backfill-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ'))
-$dbtArgs = @('--project-dir', 'dbt', '--profiles-dir', 'dbt', '--target-path', (Join-Path $output 'target'), '--log-path', (Join-Path $output 'logs'))
-& $python -m dotenv -f .env run --override -- $dbt source freshness @dbtArgs
-if ($LASTEXITCODE -ne 0) { throw 'Freshness failed; inspect sources.json before build.' }
-& $python -m dotenv -f .env run --override -- $dbt build --full-refresh --select 'silver_user_event_tracking+' @dbtArgs
-if ($LASTEXITCODE -ne 0) { throw 'dbt build failed; inspect run_results.json before reconciliation.' }
-```
-
-Full-refresh dbt chỉ đọc raw đang có, không extract lại ClickHouse. Nhánh build trên chưa thay kiểm tra toàn hệ thống; chạy verifier của [testing guide](testing.md#2-kiểm-tra-stack-đã-chạy), kiểm tra raw → Gold totals, rồi mới unpause DAG.
+Recovery có khóa phiên để chặn hai lượt recovery đồng thời. Giữ cửa sổ bảo trì cho cả các writer CLI khác. Mỗi stage/model vẫn có transaction riêng, nên lỗi giữa chừng có thể để lại một phần dữ liệu đã commit. Freshness vẫn chạy theo quy tắc hiện có; nếu nguồn/Raw đã quá cũ, lệnh dừng trước build và giữ report ingest.
 
 ## 5. Kiểm thử và xử lý lỗi
 

@@ -129,7 +129,29 @@ try {
         Invoke-Docker @compose up -d --no-build --no-deps --wait metadata
         if (-not $newPlatform) { Pause-PlatformDags }
     }
+    $releaseDir = Join-Path $projectDir 'infra/laplaptech/dags/.cosmos'
+    $releaseMode = Join-Path $releaseDir 'mode'
+    $mode = if ($newPlatform) { 'cosmos' } elseif (Test-Path -LiteralPath $releaseMode) {
+        (Get-Content -LiteralPath $releaseMode -Raw).Trim()
+    } else { 'legacy' }
+    if ($mode -notin 'cosmos', 'trial', 'legacy') { throw 'Unknown LapLapTech deployment mode.' }
+    if ($mode -in 'cosmos', 'trial') {
+        & (Join-Path $PSScriptRoot 'Publish-CosmosRelease.ps1') -Image 'laplaptech-runtime:local-v1'
+        if ($newPlatform) {
+            [IO.File]::WriteAllText($releaseMode, 'cosmos', [Text.UTF8Encoding]::new($false))
+        }
+    }
     Invoke-Docker @compose up -d --no-build --wait
+    if ($mode -in 'cosmos', 'trial') {
+        $release = (Get-FileHash -LiteralPath (Join-Path $releaseDir 'manifest.json')).Hash.ToLowerInvariant()
+        $dagId = if ($mode -eq 'trial') { 'laplaptech_cosmos_trial' } else { 'laplaptech_pipeline' }
+        $ready = 'f'
+        for ($i=0; $i -lt 30 -and $ready -ne 't'; $i++) {
+            $ready = Invoke-Docker exec airflow-platform-metadata-1 psql -U airflow -d airflow_meta -v ON_ERROR_STOP=1 -Atc "SELECT coalesce((SELECT data::text LIKE '%$release%' FROM serialized_dag WHERE dag_id='$dagId' ORDER BY last_updated DESC LIMIT 1),false);"
+            if ($ready -ne 't') { Start-Sleep -Seconds 4 }
+        }
+        if ($ready -ne 't') { throw 'DAG processor did not serialize the new Cosmos release; inspect import errors.' }
+    }
     $dashboardRunning = Invoke-Docker ps --filter 'name=^airflow-platform-dashboard-1$' --format '{{.Names}}'
     if ($dashboardRunning -eq 'airflow-platform-dashboard-1') {
         Invoke-Docker @compose --profile dashboard up -d --no-build --no-deps --wait dashboard

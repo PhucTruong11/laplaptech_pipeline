@@ -8,6 +8,7 @@ AGENTS.md
 venv
 .venv
 scratch
+infra/laplaptech/dags/.cosmos
 logs
 **/__pycache__
 dbt/target

@@ -3,6 +3,7 @@
     unique_key='id',
     on_schema_change='sync_all_columns'
 ) }}
+{% set lookback_seconds = event_lookback_seconds() %}
 
 /*
   Silver Model: silver_user_event_tracking
@@ -75,7 +76,7 @@ WITH parsed AS (
     -- Lọc gia tăng: Khi chạy ở chế độ incremental, chỉ quét những sự kiện 
     -- có timestamp server nhận mới hơn mốc lớn nhất đang tồn tại trong bảng đích ({{ this }}).
     AND to_timestamp(event_received_on_server_timestamp) >= (
-        SELECT COALESCE(MAX(server_timestamp) - INTERVAL '2 hour', '1970-01-01'::timestamp) 
+        SELECT COALESCE(MAX(server_timestamp) - make_interval(secs => {{ lookback_seconds }}), '1970-01-01'::timestamp)
         FROM {{ this }}
     )
     {% endif %}

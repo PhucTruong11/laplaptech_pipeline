@@ -21,7 +21,7 @@ Cần Python 3.10+ và Docker CLI; verifier chỉ dùng thư viện chuẩn Pyth
 python scripts/verify_local_stack.py --output scratch/system-check.json
 ```
 
-Verifier mặc định kiểm tra năm service nền healthy, DAG import errors, giới hạn RAM/CPU thực tế và pool dùng chung/schedule, target identity, dependency lock, raw → Gold reconciliation và HTTP Airflow. Khi dashboard đã được bật, thêm `--with-dashboard` để kiểm tra HTTP, database và AppTest của nó. Với `--run-pipeline`, verifier còn đối chiếu cgroup bốn task với policy. Probe/AppTest có thể tạo container/process kiểm tra; mặc định không trigger ingestion/build. Xem [resource audit](resources.md) khi chỉ cần kiểm tra tài nguyên.
+Verifier mặc định kiểm tra năm service nền healthy, DAG import errors, giới hạn RAM/CPU thực tế và pool dùng chung/schedule, target identity, dependency lock, raw → Gold reconciliation và HTTP Airflow. Khi dashboard đã được bật, thêm `--with-dashboard` để kiểm tra HTTP, database và AppTest của nó. Với `--run-pipeline`, verifier còn đối chiếu cgroup của từng task với policy. Probe/AppTest có thể tạo container/process kiểm tra; mặc định không trigger ingestion/build. Xem [resource audit](resources.md) khi chỉ cần kiểm tra tài nguyên.
 
 Nếu chọn workspace platform khác lúc bootstrap, truyền cùng đường dẫn qua `--platform-dir`:
 
@@ -37,7 +37,7 @@ python scripts/verify_local_stack.py --platform-dir '../airflow-platform' --outp
 python scripts/verify_local_stack.py --run-pipeline --output scratch/system-check-live.json
 ```
 
-Lệnh này trigger một run incremental với `full_refresh=false`, đợi bốn task success rồi xác nhận **31 model/47 data tests** trong artifacts của đúng run. Nó có đọc nguồn và ghi warehouse; không dùng để thử dữ liệu fixture. Khi timeout, run vẫn còn trong Airflow để kiểm tra, không bị verifier tự xóa.
+Lệnh này trigger một run incremental với `full_refresh=false`. Với Cosmos, verifier đợi 36 task success, xác minh **31 model/47 data test**, task IDs, attempts và cgroup trong artifacts của run. Verifier cũng đọc được dạng artifact bốn task của luồng cũ. Lệnh có đọc nguồn và ghi warehouse; khi timeout, run vẫn còn trong Airflow để kiểm tra.
 
 ## 3. Chuẩn bị Python và PostgreSQL test riêng
 
@@ -132,6 +132,8 @@ Repo giữ hai report tham khảo: [system check](../validation/system_check_202
 
 [Functional check 29/10/2026](../validation/functional_check_2026-10-29.json) ghi 60 Python tests, fixture build/replay, 15 quan sát late-data và kiểm lịch 07:00/19:00. Report phân biệt hành vi được hỗ trợ với giới hạn đã tái hiện; không phải benchmark throughput hoặc chứng nhận mọi late event đều được bắt.
 
+Lượt Cosmos theo lịch 07:00 ngày 23/11/2026 đạt 36 Airflow task, 31 dbt model và 47 data test. Kiểm tra live xác nhận freshness, đối soát Raw → Gold, giới hạn tài nguyên và 5 tab dashboard. Lượt kiểm tra này dùng pipeline incremental trên warehouse local. Báo cáo chi tiết được giữ trong `scratch/` của lần chạy.
+
 Giữ report lịch sử nguyên trạng; tạo report mới khi kiểm tra lại. Không suy ra đã diễn tập restore hoặc đã xóa Neon từ các report local.
 
 ## 9. Kiểm định lookback và late-arriving data
@@ -145,7 +147,7 @@ $assessmentOutput = Join-Path (Get-Location).Path ('scratch/late-data-' + [DateT
 & $python -m scripts.assess_late_data --reset-fixture --output $assessmentOutput
 ```
 
-Output phải là thư mục chưa tồn tại. Xem `report.json`, các `builds`/`cases` và artifacts dbt của từng lần build; log console đã che password test. Các case gồm: trong cửa sổ, đúng biên, ngoài cửa sổ, `[start,end)`, backfill + incremental/full rebuild, correction, replay, version cũ/xung đột và raw/Silver lệch lookback. Có thêm event client-time cũ một ngày nhưng server-received time mới.
+Output phải là thư mục chưa tồn tại. Xem `report.json`, các `builds`/`cases` và artifacts dbt. Fixture thử biên 2 giờ, khoảng `[start,end)`, recovery đầy đủ, correction, replay, version cũ/xung đột và cấu hình chung 3 giờ. Case 3 giờ phải đưa event 2 giờ 30 phút tới Gold qua build incremental. Có thêm event client-time cũ một ngày nhưng server-received time mới.
 
 **Ý nghĩa kết quả:** `supported` là hành vi đã đạt; `limitation_confirmed` là giới hạn cửa sổ đã tái hiện; `limitation_detected_by_test` là chênh lệch được dbt tests phát hiện. Một số build cố ý phải fail `assert_raw_to_silver`, rồi full-refresh phục hồi. Script exit 0 với `completed_with_known_limitations` chỉ xác nhận quan sát khớp đặc tả hiện tại, không có nghĩa mọi ca đều được xử lý tự động.
 

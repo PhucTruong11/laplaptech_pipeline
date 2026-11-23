@@ -8,11 +8,11 @@
 |---|---|
 | [`airflow-platform/compose.yaml`](airflow-platform/compose.yaml) | Control plane: metadata, init, API, scheduler và DAG processor |
 | [`airflow-platform/compose.laplaptech.yaml`](airflow-platform/compose.laplaptech.yaml) | Provider image, socket/source mount, warehouse PostgreSQL và Streamlit |
-| [`airflow-platform/Dockerfile`](airflow-platform/Dockerfile) | Airflow 3.3.2/Python 3.13 + Docker provider 4.6.1, executable PATH cho user airflow |
+| [`airflow-platform/Dockerfile`](airflow-platform/Dockerfile) | Airflow 3.3.2/Python 3.13, Docker provider 4.6.1 và Cosmos 1.15.1 |
 | [`airflow-platform/Initialize-LocalEnv.ps1`](airflow-platform/Initialize-LocalEnv.ps1) | Sinh `.env` Airflow một lần; từ chối ghi đè keys hiện có |
-| [`laplaptech/runtime.Dockerfile`](laplaptech/runtime.Dockerfile) | Python 3.13 + dependency lock + ingestion/dbt/stage entrypoint, UID 10001 |
+| [`laplaptech/runtime.Dockerfile`](laplaptech/runtime.Dockerfile) | Runtime Python 3.13/UID 10001 với ingestion, dbt, entrypoints và manifest tạo bởi `dbt parse` |
 | [`laplaptech/dashboard.Dockerfile`](laplaptech/dashboard.Dockerfile) | Mở rộng runtime với Streamlit app và HTTP server port 8501 |
-| [`laplaptech/dags/laplaptech_pipeline.py`](laplaptech/dags/laplaptech_pipeline.py) | Bốn DockerOperator task: ingest → freshness → build → reconcile |
+| [`laplaptech/dags/laplaptech_pipeline.py`](laplaptech/dags/laplaptech_pipeline.py) | Ingest → freshness → 31 model task Cosmos → dbt tests → collector → reconcile |
 | [`airflow-platform/diagnostics/platform_smoke_test.py`](airflow-platform/diagnostics/platform_smoke_test.py) | Diagnostic tùy chọn khi nâng cấp Airflow; không deploy trong thư mục DAG mặc định |
 | [`../scripts/Start-LocalStack.ps1`](../scripts/Start-LocalStack.ps1) | Build/config/bootstrap, tạo volumes/pool và bảo vệ lịch trong lúc cập nhật |
 | [`../scripts/verify_local_stack.py`](../scripts/verify_local_stack.py) | Kiểm tra services, DAG/data/artifacts, dependency lock và dashboard |
@@ -23,8 +23,8 @@ Cả hai Compose file phải được dùng cùng nhau. Base riêng không chứ
 
 | Image/service | Chức năng |
 |---|---|
-| `airflow-platform:3.3.2-docker4.6.1-py3.13` | API/scheduler/DAG processor/init dùng cùng core/provider |
-| `laplaptech-runtime:local-v1` | Container task riêng được scheduler tạo qua Docker Engine |
+| `airflow-platform:3.3.2-docker4.6.1-py3.13-cosmos1.15.1` | API, scheduler, DAG processor và init dùng chung image có Cosmos |
+| `laplaptech-runtime:local-v1` / `laplaptech-runtime:cosmos-<SHA>` | Image runtime local và tag của release Cosmos. Scheduler dùng tag release để tạo task container. |
 | `laplaptech-dashboard:local-v1` | Dashboard bật khi cần qua Compose profile, đọc đủ 12 Gold relations |
 | `postgres:16` / `metadata` | Database `airflow_meta` giữ state/config Airflow |
 | `postgres:16` / `warehouse-laplaptech` | Database `laplaptech_pipeline_dev` giữ raw/Bronze/Silver/Gold |
@@ -42,6 +42,8 @@ Có năm service nền; dashboard bật riêng qua Compose profile `dashboard`. 
 Bootstrap chỉ nhập nhóm `CLICKHOUSE_*`/`INGESTION_*` từ file nguồn; không sao chép endpoint PostgreSQL cloud vào task. Source mặc định là root `.env`, có thể chọn bằng `-SourceEnvFile`. `airflow-platform/.env.example` chỉ mô tả biến platform, không phải password để đăng nhập.
 
 `LAPLAPTECH_PROJECT_DIR` trỏ repo; Compose bind mount `infra/laplaptech/dags` read-only vào `/opt/airflow/dags/laplaptech` của API/scheduler/DAG processor. Sửa DAG trong repo rồi đợi parse, không copy file Python trùng ID sang platform.
+
+Manifest dbt và mode Cosmos được phát hành trong `.cosmos` dưới thư mục DAG. Khi thay SQL hoặc dependency graph, phát hành lại runtime và manifest theo [hướng dẫn Cosmos](../docs/plans/cosmos.md).
 
 Sửa ingestion/dbt/stage entrypoint cần rebuild runtime; sửa app cần rebuild dashboard. Bootstrap tạm pause mọi DAG đang bật và kiểm tra active runs toàn platform khi cập nhật, chặn active run/orphan task và giữ keys. Lỗi sau khi bắt đầu cập nhật sẽ giữ DAG paused để xử lý; xem [Docker](../docs/guides/docker.md) trước khi thao tác.
 

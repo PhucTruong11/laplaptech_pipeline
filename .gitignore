@@ -49,3 +49,6 @@ dbt/.user.yml
 
 # Private login reference generated on this machine; contains real credentials.
 /LOCAL_ACCESS.md
+
+# Local dbt release manifest and deployment mode for Airflow.
+/infra/laplaptech/dags/.cosmos/

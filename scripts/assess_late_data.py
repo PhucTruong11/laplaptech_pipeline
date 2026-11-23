@@ -20,6 +20,8 @@ from sqlalchemy import create_engine, text
 
 from ingestion import clickhouse_to_postgres as ingestion
 from scripts.dev_fixtures import FixtureClickHouse
+from scripts.recover_pipeline import execute_recovery, recovery_epochs
+from scripts.run_airflow_stage import reconcile_pipeline
 from scripts.run_dev_pipeline import validated_dev_url
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,8 +88,9 @@ def main():
     def ingest(name, **kwargs):
         start=perf_counter()
         with patch.object(ingestion,'get_clickhouse_client',return_value=source):
-            ingestion.run_pipeline(**kwargs)
+            counts = ingestion.run_pipeline(**kwargs)
         report['ingestion_runs'].append({'name':name,'seconds':round(perf_counter()-start,4)})
+        return counts
 
     def dbt(name, *, full=False, expect_failure=False, freshness=False):
         from dbt.cli.main import dbtRunner
@@ -157,7 +160,21 @@ def main():
             dbt('backfill_then_incremental',expect_failure=True)
             assert has('raw',12) and not has('public_silver',12)
             case('raw_backfill_then_incremental_silver','limitation_detected_by_test',raw_received=True,silver_received=False)
-            dbt('backfill_full_recovery',full=True)
+            def fixture_stage(stage, *, backfill=None, full_refresh=False):
+                if stage == 'ingest':
+                    first, last = recovery_epochs(*backfill)
+                    batch_report = ingest('recovery_ingest', start_epoch=first, end_epoch=last)
+                    counts = batch_report['events']['user_event_tracking']
+                    assert counts == {'source_rows': 1, 'source_ids': 1, 'older_ids_skipped': 0, 'written_ids': 1}
+                elif stage == 'reconcile':
+                    assert reconcile_pipeline(env)['daily_metric_mismatches'] == 0
+                else:
+                    dbt('recovery_' + stage, full=full_refresh, freshness=stage == 'freshness')
+                return 0
+
+            first = datetime.fromtimestamp(anchor-7201, timezone.utc).isoformat()
+            last = datetime.fromtimestamp(anchor-7200, timezone.utc).isoformat()
+            assert execute_recovery(first, last, fixture_stage) == 0
             assert has('public_silver',12)
             case('backfill_then_full_rebuild','supported',**reconciled())
 
@@ -195,10 +212,9 @@ def main():
 
             append(event(13,anchor-9000))
             with patch.dict(os.environ,{'INGESTION_LOOKBACK_SECONDS':'10800'}):
-                ingest('raw_3h_silver_2h'); dbt('lookback_config_mismatch',expect_failure=True)
-            assert has('raw',13) and not has('public_silver',13)
-            case('raw_3h_silver_fixed_2h','limitation_detected_by_test',raw_received=True,silver_received=False)
-            dbt('final_full_recovery',full=True)
+                ingest('shared_3h_lookback'); dbt('shared_3h_lookback')
+            assert has('raw',13) and has('public_silver',13)
+            case('raw_and_silver_share_3h_lookback','supported',**reconciled())
 
             delayed=event(14,anchor+1)
             delayed['event_local_timestamp']=anchor-86400
