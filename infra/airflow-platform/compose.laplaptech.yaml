@@ -1,5 +1,5 @@
 x-platform-image: &platform-image
-  image: airflow-platform:3.3.2-docker4.6.1-py3.13
+  image: airflow-platform:3.3.2-docker4.6.1-py3.13-cosmos1.15.1
   build:
     context: .
     dockerfile: Dockerfile

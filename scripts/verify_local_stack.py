@@ -88,22 +88,27 @@ def wait_healthy(services: tuple[str, ...], timeout: int = 240) -> dict:
         time.sleep(3)
 
 
-def wait_run(run_id: str, timeout: int) -> dict:
+def wait_run(run_id: str, timeout: int, *, dag_id: str = DAG_ID) -> dict:
     deadline = time.monotonic() + timeout
     query = f"""SELECT json_build_object('run_id',d.run_id,'state',d.state,
         'tasks',(SELECT json_agg(json_build_object('task_id',t.task_id,'state',t.state,
             'try_number',t.try_number) ORDER BY t.task_id)
             FROM task_instance t WHERE t.dag_id=d.dag_id AND t.run_id=d.run_id))
-        FROM dag_run d WHERE d.dag_id={sql_literal(DAG_ID)} AND d.run_id={sql_literal(run_id)};"""
+        FROM dag_run d WHERE d.dag_id={sql_literal(dag_id)} AND d.run_id={sql_literal(run_id)};"""
     previous = None
     while True:
-        result = json.loads(metadata(query))
+        row = metadata(query)
+        result = json.loads(row) if row else {'state': 'queued', 'tasks': []}
         if result != previous:
-            print('DAG:', json.dumps(result), flush=True)
+            states = {}
+            for task in result['tasks'] or []:
+                state = str(task['state'])
+                states[state] = states.get(state, 0) + 1
+            print(f"DAG {run_id}: {result['state']} {states}", flush=True)
             previous = result
         if result['state'] == 'success':
-            if len(result['tasks'] or []) != 4 or any(t['state'] != 'success' for t in result['tasks']):
-                raise RuntimeError('DAG succeeded without all four expected tasks succeeding')
+            if not result['tasks'] or any(t['state'] != 'success' for t in result['tasks']):
+                raise RuntimeError('DAG succeeded without all tasks succeeding')
             return result
         if result['state'] == 'failed':
             raise RuntimeError(f'DAG run {run_id} failed; inspect its task logs in Airflow')
@@ -112,7 +117,7 @@ def wait_run(run_id: str, timeout: int) -> dict:
         time.sleep(5)
 
 
-def run_artifacts(run_id: str) -> dict:
+def run_artifacts(run_id: str, tasks: list[dict] | None = None, *, full_refresh=False) -> dict:
     collector = '''
 from collections import Counter
 import hashlib, json
@@ -120,7 +125,9 @@ from pathlib import Path
 import sys
 base=Path('/artifacts')/hashlib.sha256(sys.argv[1].encode()).hexdigest()[:20]
 stages={}
-for stage in ('ingest','freshness','build','reconcile'):
+summary_path=base/'cosmos-summary.json'
+cosmos=json.loads(summary_path.read_text()) if summary_path.is_file() else None
+for stage in (('ingest','freshness','reconcile') if cosmos else ('ingest','freshness','build','reconcile')):
     reports=[(file,json.loads(file.read_text())) for file in (base/stage).glob('*/report.json')]
     if not reports: raise RuntimeError('Missing stage report: '+stage)
     file,report=max(reports,key=lambda pair:pair[1]['started_at'])
@@ -133,22 +140,46 @@ for stage in ('ingest','freshness','build','reconcile'):
         result=json.loads((file.parent/'target/sources.json').read_text())
         report['source_status_counts']=dict(Counter(r['status'] for r in result['results']))
     stages[stage]=report
-print(json.dumps(stages))
+print(json.dumps({'stages':stages,'cosmos':cosmos}))
 '''
     output = command(['docker', 'run', '--rm', '--network', 'none', '--read-only',
                       '--entrypoint', 'python', '--mount',
                       'type=volume,source=laplaptech-lab-artifacts,target=/artifacts,readonly',
                       RUNTIME_IMAGE, '-c', collector, run_id])
-    stages = json.loads(output)
+    artifacts = json.loads(output)
+    stages, cosmos = artifacts['stages'], artifacts['cosmos']
     if any(item['status'] != 'success' or item['exit_code'] != 0 for item in stages.values()):
         raise RuntimeError('A persisted stage report did not succeed')
-    if stages['build']['dbt_status_counts'].get('success') != 31 or stages['build']['dbt_status_counts'].get('pass') != 47:
+    build = stages.get('build')
+    if cosmos:
+        build = {
+            'dbt_status_counts': {'success': cosmos['model_count'], 'pass': cosmos['test_count']},
+            'full_refresh': cosmos['full_refresh'],
+        }
+    if build['dbt_status_counts'].get('success') != 31 or build['dbt_status_counts'].get('pass') != 47:
         raise RuntimeError('Expected 31 successful models and 47 passing dbt data tests')
-    if stages['build']['full_refresh'] is not False:
-        raise RuntimeError('Expected an incremental verification run, not a full refresh')
+    if build['full_refresh'] is not full_refresh:
+        raise RuntimeError('dbt artifacts have the wrong full-refresh mode')
     policy = json.loads(command(['docker', 'exec', container('airflow-scheduler'),
                                  'cat', '/opt/airflow/resources.json']))
-    for stage, report in stages.items():
+    budget_checks = list(stages.items())
+    expected_tasks = set(stages)
+    tries = {}
+    if cosmos:
+        if cosmos['run_id'] != run_id or cosmos['status'] != 'success':
+            raise RuntimeError('Cosmos summary identity or status failed')
+        for row in [*cosmos['models'].values(), cosmos['tests'], cosmos['collector']]:
+            expected_tasks.add(row['task_id'])
+            budget_checks.append(('build', row))
+            if 'attempt' in row:
+                tries[row['task_id']] = row['attempt']
+        if len(expected_tasks) != 36:
+            raise RuntimeError('Expected the 36 distinct tasks of the Cosmos pipeline')
+    if tasks is not None:
+        actual = {t['task_id']: t['try_number'] for t in tasks if t['state'] == 'success'}
+        if set(actual) != expected_tasks or any(actual[task] != attempt for task, attempt in tries.items()):
+            raise RuntimeError('Airflow task IDs or attempts differ from the verified artifacts')
+    for stage, report in budget_checks:
         expected = policy['projects']['laplaptech']['tasks'][stage]
         limits = report.get('resource_limits', {})
         quota, period = limits.get('cpu.max', 'max 0').split()
@@ -156,6 +187,8 @@ print(json.dumps(stages))
                 or quota == 'max' or int(quota)/int(period) != expected['cpus']
                 or limits.get('pids.max') != '256'):
             raise RuntimeError(f'{stage}: effective cgroup limits differ from resource policy')
+    if cosmos:
+        stages['cosmos'] = {'release': cosmos['release'], **build}
     return stages
 
 
@@ -200,7 +233,7 @@ def verify(platform: Path, *, run_pipeline: bool, with_dashboard: bool,
         command(['docker', 'exec', container('airflow-scheduler'), 'airflow', 'dags',
                  'trigger', '--run-id', run_id, '--conf', '{"full_refresh":false}', DAG_ID])
         report['pipeline_run'] = wait_run(run_id, wait_seconds)
-        report['pipeline_run']['stages'] = run_artifacts(run_id)
+        report['pipeline_run']['stages'] = run_artifacts(run_id, report['pipeline_run']['tasks'])
         record('incremental_pipeline_and_dbt_tests', True)
 
     probe = '''
