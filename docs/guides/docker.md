@@ -4,7 +4,7 @@
 
 ## 1. Mục đích và cấu hình
 
-ClickHouse public cung cấp dữ liệu; Airflow tạo task container để ingest → freshness → graph Cosmos → tests → reconcile; PostgreSQL local giữ warehouse; Streamlit đọc Gold. GitHub Actions chạy CI fixture. [Report hệ thống](../validation/system_check_2026-10-20.json) ghi kiểm chứng của luồng cũ theo ngày; dùng verifier để kiểm trạng thái hiện tại.
+Airflow đọc ClickHouse theo batch, nạp warehouse PostgreSQL rồi chạy freshness, graph model Cosmos, data tests và reconcile. Streamlit đọc Gold. GitHub Actions chạy CI với fixture. [Hướng dẫn kiểm thử](testing.md).
 
 ### Lệnh nhanh để lưu vào Notepad
 
@@ -26,7 +26,7 @@ docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --prof
 Set-Location $platformDir
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard stop -t 60
 
-- On Airflow và warehouse LapLapTech; dashboard vẫn tắt
+- On Airflow và warehouse LapLapTech
 Set-Location $platformDir
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml up -d
 
@@ -71,14 +71,14 @@ Tên `_dev` được giữ vì guard kiểm tra chính xác host/database/user c
 
 ## 2. Điều kiện và phạm vi hỗ trợ
 
-- Git để clone repo; Docker Desktop đã chạy **Linux containers**, PowerShell và Internet cho lần build/extract đầu.
+- Git để clone repo, PowerShell 7 và Docker Desktop ở chế độ **Linux containers**. Lần build và nạp nguồn đầu tiên cần kết nối Internet.
 - `docker version` có phần Server; `docker info --format '{{.OSType}}'` trả `linux`.
 - Chuẩn bị login ClickHouse public. `.env.example` có host/user/database nhưng password là placeholder; cần lấy credential truy cập từ người duy trì dataset/repo. Không cần tài khoản Neon để chạy stack.
 - Không cần Python/dbt/PostgreSQL trên host cho pipeline/dashboard Docker. Python trên host chỉ cần khi dùng verifier hoặc CLI/test theo các guide riêng.
 - Các cổng host mặc định `8080`, `8501`, `55434` phải trống. Xem `docker ps` và ứng dụng đang chạy trước khi chọn cổng khác.
 - Tài liệu dùng Windows Docker Desktop. Native Linux/socket GID và fresh-machine installation chưa được suy ra từ report cutover trên workspace có sẵn.
 
-Stack dùng Airflow 3.3.2/Python 3.13/LocalExecutor, Docker provider 4.6.1 và PostgreSQL 16. Runtime có 85 package đã pin. Giới hạn hiện hành theo [resource policy dùng chung](resources.md); bootstrap giữ policy vận hành đã có. Máy ở lần cutover cấp khoảng 8 GB RAM cho Docker; task ingest dùng khoảng 1,7 GB trong giới hạn 2 GB. Đây là số đo của lần chạy đó, không phải bảo đảm cho mọi volume nguồn.
+Stack dùng Airflow 3.3.2/Python 3.13/LocalExecutor, Docker provider 4.6.1, Cosmos 1.15.1 và PostgreSQL 16. Runtime có 85 package đã pin. Bootstrap giữ policy vận hành đã có. [Ngân sách RAM/CPU và cách kiểm tra](resources.md).
 
 ## 3. Cài đặt hoặc cập nhật từ repo
 
@@ -102,7 +102,7 @@ if (-not (Test-Path -LiteralPath '.env')) {
 .\scripts\Start-LocalStack.ps1 -InitializePlatform
 ```
 
-**Checkpoint:** script kết thúc thành công, tạo pool RAM dùng chung `platform_memory` bốn slot và báo địa chỉ Airflow. Dashboard được giữ tắt để tiết kiệm RAM; bật riêng sau khi có Gold. Nếu có lỗi, sửa lỗi đầu tiên trước khi chạy lại; không xóa volumes để thử.
+**Checkpoint:** script kết thúc thành công và tạo pool RAM dùng chung `platform_memory` bốn slot. Mở Airflow ở [localhost:8080](http://localhost:8080) theo mặc định. Lần cài mới bật chế độ Cosmos và dashboard được bật riêng sau khi có Gold.
 
 Lần đầu dùng Docker bootstrap → đăng nhập Airflow → unpause/trigger → đợi reconcile thành công → mở dashboard theo mục 4. Bootstrap mới build Cosmos và xuất manifest cùng runtime. Dùng [dbt guide](dbt.md) khi muốn học từng lệnh và [testing](testing.md) khi muốn kiểm bằng fixture.
 
@@ -112,11 +112,11 @@ Source config chỉ nhập `CLICKHOUSE_*`/`INGESTION_*`. Hai project passwords �
 
 Bootstrap tạm pause mọi DAG đang unpaused trên platform trước khi kiểm tra queued/running runs toàn platform. Nếu vẫn có active run, nó trả trạng thái pause ban đầu rồi dừng; đợi run kết thúc và thử lại. Trong lúc cập nhật, DAG được giữ paused để lịch không tạo writer mới. Thành công sẽ khôi phục trạng thái pause ban đầu. Nếu cập nhật dở dang gặp lỗi, DAG giữ paused: sửa lỗi và chạy lại bootstrap, hoặc kiểm tra cấu hình/runtime rồi chủ động unpause. Platform mới không tự bật DAG.
 
-Có thể chỉ định workspace/cổng:
+Có thể chỉ định workspace mới và cổng khi cài lần đầu:
 
 ```powershell
 $platformDir = Join-Path (Split-Path -Path (Get-Location).Path -Parent) 'airflow-platform'
-.\scripts\Start-LocalStack.ps1 -PlatformDir $platformDir -WarehousePort 55434 -DashboardPort 8501
+.\scripts\Start-LocalStack.ps1 -InitializePlatform -PlatformDir $platformDir -WarehousePort 55434 -DashboardPort 8501
 ```
 
 Cổng tùy chọn chỉ dùng khi khởi tạo mới bằng `-InitializePlatform`. Với platform đang có, script kiểm tra và giữ nguyên cổng/path đã đăng ký; thay đổi chúng trực tiếp tại platform sau khi review các project dùng chung. Nếu chạy Python từ host, dùng user `laplaptech_pipeline`, password riêng và cập nhật `POSTGRES_PORT` trong root `.env`; không thay host/port nội bộ của runtime guard.
@@ -128,8 +128,8 @@ Source DAG duy nhất là [`infra/laplaptech/dags/laplaptech_pipeline.py`](../..
 ## 4. Chạy và kiểm chứng pipeline
 
 1. Mở Airflow, đợi `laplaptech_pipeline` xuất hiện và không có import error.
-2. Unpause DAG. Khi bật lần đầu, Airflow có thể tạo lượt mới nhất đã đến hạn; các run vẫn chạy tuần tự.
-3. Trigger manual với `full_refresh=true` khi cần rebuild Silver incremental từ raw.
+2. Unpause DAG và xem tab **Runs**. Khi khởi động lại, Airflow có thể tiếp tục lượt đã đến hạn còn chờ. Đợi lượt đang chạy nếu mục đích là kiểm tra pipeline.
+3. Trigger manual khi cần một lượt riêng. Dùng mặc định `full_refresh=false` hoặc chọn `true` để rebuild Silver incremental từ Raw.
 4. Kiểm tra `ingest`, `freshness`, nhóm `transform`, `dbt_tests`, collector và `reconcile` success. Đọc Task Logs của model lỗi. [Hướng dẫn Cosmos](../plans/cosmos.md) ghi cách phát hành và rollback.
 5. Sau khi Gold đã được build, bật dashboard theo [mục 5](#bật-tắt-riêng-dashboard). Healthcheck kiểm tra HTTP và đủ 12 Gold relations trong warehouse.
 
@@ -176,13 +176,13 @@ Nếu đã chọn workspace khác, dùng đúng đường dẫn đó.
 
 ```powershell
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml ps
-docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml logs --tail 60 airflow-scheduler airflow-dag-processor dashboard
+docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard logs --tail 60 airflow-scheduler airflow-dag-processor dashboard
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml exec airflow-dag-processor airflow dags list-import-errors
 ```
 
 **Checkpoint:** năm service nền healthy; dashboard tùy chọn. Init `Exited (0)` là bình thường; danh sách import errors rỗng. Health không thay cho kiểm chứng DAG/data tests.
 
-Khi nghỉ, từ root repo dùng công tắc dưới đây. `Off` kiểm tra không còn run/task đang chạy rồi dừng **toàn bộ** Compose `airflow-platform`: Airflow dùng chung, metadata PostgreSQL, warehouse LaplapTech và dashboard nếu đã bật. Các Compose project độc lập không bị tác động. `On` bật lại Airflow và warehouse; dashboard vẫn tắt.
+Khi nghỉ, từ root repo dùng công tắc dưới đây. `Off` kiểm tra không còn run/task đang chạy rồi dừng Airflow dùng chung, metadata PostgreSQL, warehouse LapLapTech và dashboard nếu đang bật. `On` khởi động Airflow và warehouse. Muốn dùng dashboard sau khi bật lại, chạy lệnh ở mục dưới. Các lệnh tác động trong phạm vi Compose project `airflow-platform`.
 
 ```powershell
 .\scripts\Set-LocalStack.ps1 -State Status
@@ -202,7 +202,7 @@ Khi chạy tiếp, mở Docker Desktop và đợi Engine ready, sau đó:
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml up -d
 ```
 
-Không thêm `-v`/`--volumes` khi dừng thường ngày. Dữ liệu, metadata, logs và artifacts nằm trong named volumes. Docker/laptop tắt thì scheduler/dashboard dừng; CI không chạy bù ETL. Lượt kế tiếp dùng watermark + lookback; `catchup=False` không sinh toàn bộ lịch bị lỡ và không thay bounded backfill.
+Dữ liệu, trạng thái pause của DAG, logs và artifacts được giữ trong named volumes khi dùng `stop`. Docker hoặc laptop tắt thì scheduler dừng. Khi stack khởi động và DAG đang unpaused, lượt còn chờ có thể chạy, dùng watermark và lookback hiện có. Với `catchup=False`, Airflow không chạy lại toàn bộ lịch bị lỡ. [Recovery theo khoảng thời gian](ingestion.md#4-backfill-event-theo-khoảng-thời-gian).
 
 ### Bật tắt riêng dashboard
 
@@ -220,37 +220,37 @@ Mở [localhost:8501](http://localhost:8501) theo mặc định. Nếu cổng ho
 | Bạn sửa gì? | Thao tác |
 |---|---|
 | DAG | Lưu source trong repo, chờ processor parse; không copy bản thứ hai |
-| Ingestion/dbt/entrypoint | Chạy bootstrap để pause/cập nhật an toàn, hoặc pause DAG và đợi hết active run trước khi rebuild thủ công |
+| Ingestion/dbt/entrypoint | Chạy bootstrap để build runtime, phát hành manifest và chờ DAG nhận release mới ở chế độ Cosmos |
 | Dashboard | Rebuild dashboard từ runtime hiện tại, recreate service |
 | ClickHouse login | Sửa file nguồn rồi chạy lại bootstrap khi không có run active |
 | RAM/CPU, dbt threads, thêm ngân sách project | Drain toàn platform, áp dụng tại workspace platform theo [resource guide](resources.md); bootstrap chỉ đọc policy đã cấu hình |
 | Airflow encryption/login keys | Giữ cùng metadata; không sinh lại `.env` để xử lý lỗi kết nối |
 
-Cách khuyến nghị sau khi sửa runtime hoặc config là chạy lại bootstrap từ root repo; script giữ các lịch đang bật trên toàn platform paused suốt quá trình rồi khôi phục trạng thái cũ. Nếu rebuild thủ công bằng các lệnh dưới đây, pause DAG và đợi hết queued/running runs trước; chỉ unpause sau khi build/recreate và kiểm tra thành công.
+Sau khi sửa runtime hoặc config, chạy `.\scripts\Start-LocalStack.ps1` từ root repo. Script giữ các lịch bị ảnh hưởng ở trạng thái paused trong lúc cập nhật rồi khôi phục trạng thái cũ khi hoàn tất. DAG Cosmos gọi tag theo SHA của manifest, nên build lại `laplaptech-runtime:local-v1` một mình chưa cập nhật DAG. [Phát hành runtime Cosmos thủ công](../plans/cosmos.md#1-chuẩn-bị-và-phát-hành-runtime).
 
-Tại **root repo**:
+Nếu chỉ sửa Streamlit, rebuild dashboard tại **root repo**:
 
 ```powershell
-docker build -f infra/laplaptech/runtime.Dockerfile -t laplaptech-runtime:local-v1 .
 docker build -f infra/laplaptech/dashboard.Dockerfile -t laplaptech-dashboard:local-v1 .
+if ($LASTEXITCODE -ne 0) { throw 'Dashboard build failed.' }
 ```
 
 Sau đó tại **workspace platform**:
 
 ```powershell
-docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard up -d dashboard
+docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml --profile dashboard up -d --no-build --no-deps dashboard
 ```
 
 Root `.env` phục vụ Python trên host; `.env` platform phục vụ Airflow; `/run/laplaptech/pipeline.env` trên config volume phục vụ task. Sửa file trên host không tự sửa config volume đã nạp. Biến môi trường shell có thể ưu tiên hơn root `.env` khi chạy CLI trên host.
 
 ## 7. Artifacts và backup
 
-Mỗi stage lưu `/artifacts/<sha256(run_id)[:20]>/<stage>/attempt-<try>-<uuid>/report.json`. Build có `target/manifest.json`, `target/run_results.json`; freshness có `target/sources.json`; log dbt ở `logs/`. Nếu container chưa được tạo hoặc dbt chưa chạy, artifact tương ứng có thể chưa tồn tại; đọc Airflow Task Logs để phân biệt.
+Artifact nằm trong volume `laplaptech-lab-artifacts`. Lấy đường dẫn của đúng run/attempt từ log task. Model/test Cosmos có `target/run_results.json`, collector ghi `cosmos-summary.json` và freshness ghi `target/sources.json`. [Bảng đường dẫn artifacts theo task](airflow.md#5-assets-logs-và-artifacts).
 
-Liệt kê stage reports từ image runtime:
+Liệt kê task reports và Cosmos summaries từ image runtime:
 
 ```powershell
-docker run --rm --entrypoint python --mount type=volume,source=laplaptech-lab-artifacts,target=/artifacts,readonly laplaptech-runtime:local-v1 -c 'from pathlib import Path; print("\n".join(str(p) for p in Path("/artifacts").rglob("report.json")))'
+docker run --rm --network none --entrypoint python --mount type=volume,source=laplaptech-lab-artifacts,target=/artifacts,readonly laplaptech-runtime:local-v1 -c 'from pathlib import Path; root = Path("/artifacts"); print("\n".join(str(p) for name in ("report.json", "cosmos-summary.json") for p in sorted(root.rglob(name))))'
 ```
 
 Để backup, pause DAG và đợi hết queued/running runs. Tại **workspace platform**, tạo một thư mục theo thời điểm và dump hai database. File binary được tạo trong container rồi copy ra host, dùng được cả với Windows PowerShell 5:
@@ -283,18 +283,17 @@ Get-ChildItem -LiteralPath $backupDir -Force
 |---|---|
 | Không tìm thấy `dockerDesktopLinuxEngine`/Docker daemon | Mở Docker Desktop, đợi Engine ready, kiểm tra `docker version` có Server rồi chạy `up -d` |
 | PowerShell báo `running scripts is disabled` | Chạy `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned` trong chính terminal đó rồi chạy lại bootstrap; scope Process chỉ áp dụng cho phiên hiện tại |
-| Port already allocated | Xem `docker ps`; chọn cổng host trống qua bootstrap. Giữ nguyên port nội bộ của service |
+| Port already allocated | Xem `docker ps` và tiến trình đang nghe trên host. Với dashboard, dùng `DASHBOARD_PORT` theo mục 5. Cổng warehouse trên platform đã có được chỉnh ở workspace platform. |
 | PostgreSQL `28P01` | Kiểm đúng role pipeline/dashboard và key tương ứng trong `.env` platform; bỏ mật khẩu cũ client đã lưu. Kiểm JDBC URL dùng đúng 55434/dev DB; không reset mật khẩu admin để chữa kết nối app |
 | Test Connection tới 5432 thành công | Đó có thể là PostgreSQL cũ; dùng đúng 55434 để xem warehouse Docker |
 | Airflow login không dùng được | Đọc `.env` platform thật; đổi `.env.example` không đổi user đã có trong metadata |
 | DAG không thấy/import error | Kiểm tra `LAPLAPTECH_PROJECT_DIR`, source mount, log DAG processor và `dags list-import-errors` |
 | Task queued mãi | Xem scheduler health, trạng thái paused, pool và run trước; đừng chỉ restart API |
 | Bootstrap lỗi rồi DAG vẫn paused | Giữ pause để sửa lỗi, chạy lại bootstrap hoặc kiểm tra cấu hình/runtime trước khi unpause; không tạo mới `.env` để thử |
-| Bootstrap báo scheduler container không chạy, nhưng metadata còn chạy | Tại workspace platform, dùng đủ hai Compose file chạy `up -d`, đợi scheduler ready rồi chạy bootstrap lại; bootstrap cần scheduler hiện có để pause DAG trước cập nhật |
 | Freshness error | Đối chiếu `sources.json` và timestamp nguồn; không bỏ kiểm tra chỉ để run xanh |
 | Task exit 137 | Xem RAM và task log, đo workload; giảm đồng thời trước khi tăng giới hạn |
 | Dashboard unhealthy | Đợi build đầu xong, xem log dashboard và kết nối DB; healthcheck yêu cầu đủ Gold relations |
-| Dashboard **Today** hiện 0 | Kiểm tra `reconcile` của lượt mới nhất và mốc **Latest received event**. **Refresh data** đọc lại Gold sau khi xóa cache 5 phút. Nếu Gold vẫn rỗng cho ngày hiện tại, đối chiếu số sự kiện từ ClickHouse theo giờ Việt Nam. |
+| Dashboard **Today** hiện 0 | Kiểm tra `reconcile` và **Latest received event**. **Refresh data** chỉ đọc lại Gold. Nếu ClickHouse đã có event hôm nay mà Gold chưa có, kiểm tra event có xuất hiện sau lượt ingest gần nhất hay chưa. [Cách dashboard tính ngày](../architecture/data_flow.md#36-dashboard-exposure-và-giới-hạn-phục-vụ-dữ-liệu). |
 
 ## 9. Phạm vi cloud và bằng chứng
 

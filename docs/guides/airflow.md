@@ -4,7 +4,7 @@
 
 ## 1. Điều kiện và vai trò
 
-Stack đã được dựng theo [hướng dẫn Docker](docker.md), Docker Desktop chạy Linux containers và năm service nền healthy; dashboard bật riêng khi cần. Bài này dùng baseline **Airflow 3.3.2 / Python 3.13 / LocalExecutor**, Docker provider **4.6.1** được pin trong source.
+Stack dùng Docker Desktop ở chế độ Linux containers. Kiểm tra năm service nền healthy trước khi chạy DAG. Image Airflow pin **Airflow 3.3.2 / Python 3.13 / LocalExecutor**, Docker provider **4.6.1** và Cosmos **1.15.1**. [Hướng dẫn Docker](docker.md).
 
 | Thành phần | Việc thực hiện |
 |---|---|
@@ -52,17 +52,18 @@ docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml exec -
 
 **Checkpoint:** version 3.3.2, không có import error và thấy `laplaptech_pipeline`. UI mở được chưa chứng minh task đã chạy. Đăng nhập bằng `AIRFLOW_ADMIN_USERNAME`/`AIRFLOW_ADMIN_PASSWORD` trong `.env` **platform**, không dùng placeholder `.env.example`.
 
-Trong UI: mở DAG → unpause → Trigger. Lần rebuild Silver từ raw, chọn parameter `full_refresh=true`; các lượt thường để `false`.
+Trong UI, mở DAG, bật lịch và xem tab **Runs**. Nếu cần chạy ngay và chưa có lượt `Queued` hoặc `Running`, chọn **Trigger**. Các lượt thường để `full_refresh=false`. Chọn `true` khi cần rebuild Silver incremental từ Raw.
 
 CLI tương đương cho một lượt thường, tại workspace platform:
 
 ```powershell
 $runId = 'manual-' + (Get-Date -Format 'yyyyMMddTHHmmss')
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml exec -T airflow-scheduler airflow dags unpause laplaptech_pipeline
+# Xem tab Runs sau khi unpause. Chạy dòng dưới khi cần thêm một lượt manual.
 docker compose --env-file .env -f compose.yaml -f compose.laplaptech.yaml exec -T airflow-scheduler airflow dags trigger --run-id $runId laplaptech_pipeline
 ```
 
-Mỗi run ID phải khác nhau. Unpause lần đầu có thể tạo lượt lịch mới nhất đã đến hạn; các run vẫn chạy tuần tự. Trigger manual không tự thay param mặc định của các lượt scheduled.
+Mỗi run ID phải khác nhau. Khi lịch được bật lại hoặc scheduler khởi động, Airflow có thể tiếp tục lượt đã đến hạn còn chờ. Các run chạy tuần tự. Param của lượt thủ công chỉ áp dụng cho lượt đó.
 
 ## 4. Đọc DAG theo ý nghĩa vận hành
 
@@ -99,7 +100,17 @@ Assets ghi metadata dữ liệu sẵn sàng, không chứa dataset. DAG hiện v
 
 Trong UI, mở đúng **run → task → Logs**; xem try number để phân biệt attempt. Docker task container tự xóa khi kết thúc, nhưng Airflow logs và runtime artifacts vẫn nằm trên named volumes.
 
-Mỗi stage lưu `/artifacts/<sha256(run_id)[:20]>/<stage>/attempt-<try>-<uuid>/report.json`. Build có `target/manifest.json` và `target/run_results.json`; freshness có `target/sources.json`. Nếu Docker chưa tạo được container thì chưa có stage report; nếu dbt chưa chạy thì chưa có dbt artifacts.
+Mỗi run có thư mục `/artifacts/<sha256(run_id)[:20]>/` trên volume artifact. Mở đường dẫn chính xác trong log task.
+
+| Task | Đường dẫn trong thư mục run |
+|---|---|
+| `ingest`, `freshness`, `reconcile` | `<stage>/attempt-<try>-<uuid>/report.json`. Freshness còn có `target/sources.json`. |
+| Model Cosmos | `cosmos/<dbt-unique-id>/attempt-<try>-<uuid>/report.json` và `target/run_results.json` trong attempt đó |
+| `dbt_tests` | `cosmos/tests/attempt-<try>-<uuid>/report.json` và `target/run_results.json` trong attempt đó |
+| `collect_dbt_results` | `cosmos-summary.json` sau khi xác nhận model/test của đúng release và run |
+| `build` ở chế độ legacy | `build/attempt-<try>-<uuid>/report.json` cùng `target/manifest.json` và `target/run_results.json` |
+
+Nếu lỗi xảy ra trước khi container hoặc dbt khởi động, đọc log Airflow để biết lỗi đầu tiên. Các file của attempt đó có thể chưa được tạo.
 
 Kiểm tra log control plane tại workspace platform:
 

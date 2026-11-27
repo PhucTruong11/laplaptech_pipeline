@@ -37,7 +37,7 @@ Baseline được chọn cho máy khoảng 16 GB RAM/18 CPU logic; giữ phần 
 | build | 1024 MiB | 1 | 2 |
 | reconcile | 512 MiB | 1 | 1 |
 
-Slot của task = `ceil(memory_mib / 512)`. Ingest chiếm cả pool; build có thể chia pool với task nhẹ của project khác. LaplapTech vẫn giữ `max_active_runs=1`, `max_active_tasks=1` để tránh writer chồng nhau. Giới hạn này không bảo vệ writer chạy thủ công ngoài Airflow.
+Slot của task = `ceil(memory_mib / 512)`. Ingest chiếm cả pool. Các task model Cosmos, `dbt_tests`, `collect_dbt_results` và `build` legacy đều dùng ngân sách `build`, hai slot mỗi task. LapLapTech giữ `max_active_runs=1`, `max_active_tasks=1` để các task của DAG chính chạy tuần tự. Giới hạn này chỉ áp dụng cho task do Airflow điều phối.
 
 Ngân sách host mặc định: **4096 + 2048 + 768 headroom + 512 VM overhead = 7424 MiB ≤ 8192 MiB**. Dashboard dùng Compose profile `dashboard`; khi bật, ngân sách thành 7936 MiB. Service của project khác trên cùng máy phải được cộng vào ngân sách platform trước khi chạy cùng; mẫu repo không tự đăng ký chúng. Không dùng swap để mở rộng ngân sách task.
 

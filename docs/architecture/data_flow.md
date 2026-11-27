@@ -1,6 +1,6 @@
 # Data flow và kiến trúc LapLapTech
 
-Tài liệu này giải thích **hệ thống đang có trong code**, đối chiếu ngày 29/10/2026. Đây không phải báo cáo health realtime. Các sơ đồ mô tả luồng điều phối, dữ liệu và ranh giới transaction; chúng không khẳng định cả hệ thống commit trong một lần.
+Tài liệu này mô tả kiến trúc hiện hành, đối chiếu với lượt vận hành ngày **27/11/2026**. Các sơ đồ thể hiện luồng điều phối, dữ liệu và ranh giới transaction. [Hướng dẫn kiểm tra trạng thái đang chạy](../guides/testing.md#2-kiểm-tra-stack-đã-chạy).
 
 Đọc mục 1 để hiểu Docker/Airflow, mục 2 để hiểu ingestion, mục 3 để hiểu dbt/dashboard, mục 4 để hiểu lỗi và recovery. Các thiết kế **chưa triển khai** nằm ở [roadmap](../plans/roadmap.md), không được xem là chức năng hiện tại. Lệnh thao tác nằm ở [Docker](../guides/docker.md), [Airflow](../guides/airflow.md), [ingestion](../guides/ingestion.md) và [dbt](../guides/dbt.md).
 
@@ -382,7 +382,7 @@ flowchart TB
 
 [data.py](../../streamlit_app/data.py) chỉ nhận tên model trong allowlist, dùng SQLAlchemy pool nhỏ và SELECT Gold. [app.py](../../streamlit_app/app.py) đọc đủ 12 bảng, hiển thị năm tab. Date filter ở Overview không tự biến các Gold all-time thành metric của cùng khoảng ngày; các tab khác có ngữ cảnh riêng. App có thời điểm event mới nhất, nhắc lịch batch/cache và nút refresh cache.
 
-**Today** tính theo ngày server nhận sự kiện ở múi giờ Việt Nam. Nếu ngày đó chưa có sự kiện trong Gold, KPI đếm hiển thị 0 và tỷ lệ thiếu mẫu số hiển thị `N/A`. **Refresh data** xóa cache để đọc lại Gold. Pipeline vẫn cập nhật warehouse theo lịch Airflow trong lúc dashboard tắt.
+**Today** tính theo ngày server nguồn nhận sự kiện ở múi giờ Việt Nam. Nếu ngày đó chưa có sự kiện trong Gold, KPI đếm hiển thị `0` và tỷ lệ thiếu mẫu số hiển thị `N/A`. Bản ghi có thể xuất hiện trong kết quả ClickHouse sau ngày ghi nhận của nó. Khi pipeline nạp một bản ghi như vậy, KPI của ngày cũ được cập nhật. Lịch 07:00 và 19:00 là lịch LapLapTech đọc nguồn. **Refresh data** xóa cache để đọc lại Gold. Pipeline vẫn cập nhật warehouse theo lịch Airflow trong lúc dashboard tắt.
 
 **Gold chưa có cơ chế publish nguyên khối.** dbt xây từng bảng, dashboard có thể query trong lúc build; nếu model sau lỗi thì một số Gold đã mới, số khác còn cũ. Reconcile/Gold Asset không làm các bảng đó quay lại phiên bản trước. Cache từng bảng còn có thể giữ các phiên bản khác nhau qua nhiều request. Thiết kế candidate → validate → publish và cache theo version nằm ở [roadmap mục 3](../plans/roadmap.md#3-publish-gold-nhất-quán-và-cache-theo-phiên-bản).
 
