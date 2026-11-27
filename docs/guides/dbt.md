@@ -13,7 +13,7 @@ dbt đọc SQL/Jinja trong repo, sắp dependency bằng `source()`/`ref()`, g�
 | Silver | `public_silver` | 12 views + bảng incremental `silver_user_event_tracking` |
 | Gold | `public_gold` | 12 tables phục vụ dashboard |
 
-Source hiện có **31 model, 47 data tests, 6 sources và 1 exposure**. Repo pin **dbt Core 1.12.3**; freshness dùng lệnh `dbt source freshness`. Freshness chỉ cấu hình cho nguồn event: warn sau 24 giờ, error sau 48 giờ.
+Source hiện có **31 model, 47 data tests, 6 sources và 1 exposure**. Repo pin **dbt Core 1.12.3** và **dbt-postgres 1.11.0**. `dbt source freshness` đo timestamp mới nhất trong bảng event Raw đã nạp. Ngưỡng cảnh báo là 24 giờ, ngưỡng lỗi là 48 giờ.
 
 | Lệnh / khai báo | Vai trò | Khi dùng trong project |
 |---|---|---|
@@ -37,7 +37,7 @@ Sau khi [Docker stack](docker.md) đã được dựng:
 3. Theo dõi `ingest → freshness → transform → dbt_tests → collect_dbt_results → reconcile`. Mỗi model trong `transform` có một task Cosmos. Lệnh `dbt build` vẫn dùng cho fixture, recovery và chế độ legacy.
 4. Mở log task để tìm đường dẫn artifacts, rồi xem dashboard.
 
-Airflow gọi [`run_airflow_stage.py`](../../scripts/run_airflow_stage.py) trong image runtime. Wrapper nạp config volume read-only, xác nhận đúng database/user và giữ output riêng theo run/task/attempt. Dataset không đi qua XCom.
+Airflow gọi `run_airflow_stage.py` cho ingest, freshness và reconcile. Task model và data test gọi `run_cosmos.py` để đối chiếu SHA của manifest, xác nhận đích warehouse và ghi output theo run/task/attempt. `collect_dbt_results` đọc các artifact đó để xác nhận đủ kết quả trước reconcile. [Stage entrypoint](../../scripts/run_airflow_stage.py) · [Cosmos entrypoint](../../scripts/run_cosmos.py).
 
 Sửa SQL/model trong repo **chưa thay code trong image task**. Chạy lại bootstrap theo [Docker guide](docker.md) để rebuild/cập nhật an toàn, sau đó trigger run mới. Sửa DAG Python thì chờ DAG processor parse, không cần rebuild runtime.
 
@@ -90,7 +90,7 @@ $python = '.\.venv\Scripts\python.exe'
 & $python -m pip check
 ```
 
-dbt không tự đọc root `.env`; project `profiles.yml` dùng `env_var`. Các ví dụ dùng python-dotenv `--override` để nạp rõ file cấu hình đã chọn. Kiểm tra root `.env` có target host `localhost:55434`, user `laplaptech`, DB `laplaptech_pipeline_dev`, SSL `prefer`. Bên trong task Docker, địa chỉ tương ứng là `warehouse-laplaptech:5432`.
+`profiles.yml` lấy cấu hình qua `env_var`. Các ví dụ dùng python-dotenv `--override` để nạp root `.env`. Với warehouse Docker mặc định, đặt `POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT=55434`, `POSTGRES_USER=laplaptech_pipeline`, `POSTGRES_DATABASE=laplaptech_pipeline_dev` và `POSTGRES_SSLMODE=prefer`. Điền `POSTGRES_PASSWORD` bằng giá trị `LAPLAPTECH_PIPELINE_PASSWORD` trong `.env` của platform. Bootstrap cấp login nhưng bạn cần tự điền mật khẩu cho CLI trên host. Task Docker kết nối qua `warehouse-laplaptech:5432`. [Thông tin kết nối](docker.md#thành-phần-và-cổng-kết-nối).
 
 Tạo vùng artifacts riêng cho phiên học này:
 

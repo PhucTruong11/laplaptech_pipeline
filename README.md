@@ -8,7 +8,7 @@ Pipeline học Data Engineering: đọc ClickHouse public, nạp PostgreSQL, bi�
 
 | Thành phần | Cấu hình |
 |---|---|
-| Điều phối | Airflow 3.3.2 / LocalExecutor, DAG `laplaptech_pipeline` |
+| Điều phối | Airflow 3.3.2 / LocalExecutor và Cosmos 1.15.1, DAG `laplaptech_pipeline` |
 | Lịch | 07:00 và 19:00, timezone Việt Nam; một active run/writer |
 | Warehouse | PostgreSQL 16, `127.0.0.1:55434/laplaptech_pipeline_dev` |
 | Transformation | 31 dbt model: 6 Bronze views, 13 Silver relations, 12 Gold tables |
@@ -56,8 +56,8 @@ if (-not (Test-Path -LiteralPath '.env')) {
 Dataset public vẫn yêu cầu login: `.env.example` đã có host/user/database, còn password phải lấy từ người duy trì dataset/repo. Nếu chưa có credential này thì chưa chạy được ingestion nguồn thật; [testing guide](docs/guides/testing.md) có lựa chọn fixture không cần login ClickHouse.
 
 1. Mở [Airflow](http://localhost:8080), đăng nhập bằng `.env` của **platform**.
-2. Unpause `laplaptech_pipeline`, Trigger với `full_refresh=true` khi cần rebuild Silver từ raw.
-3. Đợi các model, tests, collector và reconcile thành công, bật dashboard theo [Docker guide](docs/guides/docker.md) rồi mở [localhost:8501](http://localhost:8501) hoặc cổng host đã chọn.
+2. Unpause `laplaptech_pipeline` và kiểm tra tab **Runs**. Nếu Airflow chưa tạo lượt chạy và bạn muốn kiểm tra ngay, chọn **Trigger** với `full_refresh=false`. Dùng `true` khi cần rebuild Silver incremental từ Raw.
+3. Đợi `reconcile` thành công, bật dashboard và mở địa chỉ host mặc định hoặc cổng đã chọn. [Lệnh bật/tắt dashboard](docs/guides/docker.md#bật-tắt-riêng-dashboard) · [Dashboard mặc định](http://localhost:8501).
 
 Dashboard chỉ cần bật khi xem. Tắt riêng dashboard thì Airflow vẫn chạy lịch **07:00 và 19:00 giờ Việt Nam** nếu DAG đang unpaused và warehouse còn chạy. [Lệnh bật/tắt dashboard](docs/guides/docker.md#bật-tắt-riêng-dashboard).
 
@@ -89,7 +89,7 @@ Các việc có thể nâng cấp được xếp ở [roadmap](docs/plans/roadma
 | Cấu hình/xu hướng | `gold_cpu_trend`, `gold_gpu_trend`, `gold_spec_popularity` |
 | Benchmark/pin | `gold_performance_ranking`, `gold_performance_efficiency`, `gold_battery_vs_interest` |
 
-Daily KPI dùng ngày server nhận event theo giờ Việt Nam. Cộng daily sessions qua nhiều ngày là **session-days**. Funnel đo reach trong cùng session-day, chưa chứng minh thứ tự chuyển đổi. Search volume không tự chứng minh zero-result/product gap.
+**Today** dùng ngày server nguồn nhận event theo giờ Việt Nam. Một lượt chạy hôm nay vẫn có thể bổ sung event cho các ngày trước. Cộng daily sessions qua nhiều ngày là **session-days**. Funnel đo reach trong cùng session-day, chưa chứng minh thứ tự chuyển đổi. Search volume không tự chứng minh zero-result/product gap.
 
 Raw không lưu mọi version. Event nằm ngoài lookback có thể phục hồi bằng [lệnh recovery theo khoảng](docs/guides/ingestion.md#4-backfill-event-theo-khoảng-thời-gian) nếu nguồn vẫn còn dữ liệu. Extraction vẫn giữ DataFrame trong RAM. Xem giới hạn về correction incremental, quarantine và Gold publication trong [data flow](docs/architecture/data_flow.md).
 
@@ -101,7 +101,7 @@ Từ root repo, với Python 3.10+ và Docker CLI:
 python scripts/verify_local_stack.py --output scratch/system-check.json
 ```
 
-Mặc định không trigger ETL. Thêm `--run-pipeline` để chạy một lượt ingestion/freshness/build/reconcile thật và xác nhận artifacts của đúng run. Fixture/reset chỉ dùng database `laplaptech_pipeline_test`; runner từ chối warehouse active trước khi kết nối hoặc ghi. Xem [testing](docs/guides/testing.md).
+Mặc định verifier kiểm stack và dữ liệu hiện có. Thêm `--run-pipeline` để chạy một lượt incremental và xác nhận artifacts của đúng run. Thêm `--with-dashboard` khi dashboard đã bật. Fixture/reset dùng database `laplaptech_pipeline_test` riêng. [Hướng dẫn kiểm thử](docs/guides/testing.md).
 
 ## Dataset attribution
 

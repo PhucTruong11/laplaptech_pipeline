@@ -132,7 +132,7 @@ Repo giữ hai report tham khảo: [system check](../validation/system_check_202
 
 [Functional check 29/10/2026](../validation/functional_check_2026-10-29.json) ghi 60 Python tests, fixture build/replay, 15 quan sát late-data và kiểm lịch 07:00/19:00. Report phân biệt hành vi được hỗ trợ với giới hạn đã tái hiện; không phải benchmark throughput hoặc chứng nhận mọi late event đều được bắt.
 
-Lượt Cosmos theo lịch 07:00 ngày 23/11/2026 đạt 36 Airflow task, 31 dbt model và 47 data test. Kiểm tra live xác nhận freshness, đối soát Raw → Gold, giới hạn tài nguyên và 5 tab dashboard. Lượt kiểm tra này dùng pipeline incremental trên warehouse local. Báo cáo chi tiết được giữ trong `scratch/` của lần chạy.
+Lượt lịch 07:00 ngày 27/11/2026 được thực thi sau khi bật lại stack và hoàn tất lúc 10:25 giờ Việt Nam. Báo cáo local xác nhận 36 Airflow task, 31 dbt model, 47 data test, freshness, đối soát Raw → Gold, giới hạn tài nguyên và 5 tab dashboard. Báo cáo chi tiết của lần kiểm tra được giữ trong `scratch/`.
 
 Giữ report lịch sử nguyên trạng; tạo report mới khi kiểm tra lại. Không suy ra đã diễn tập restore hoặc đã xóa Neon từ các report local.
 

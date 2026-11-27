@@ -46,6 +46,7 @@ Node warehouse mô tả **một PostgreSQL instance với database riêng cho t�
 | `airflow-api-server` | Airflow 3 UI và API, cổng host `127.0.0.1:8080` | **Có**; thay vị trí webserver trong nhiều sơ đồ Airflow cũ |
 | `airflow-scheduler` | Quyết định run/task nào sẵn sàng; LocalExecutor chạy task Airflow cục bộ | **Có**; được mount Docker socket để DockerOperator tạo runtime container |
 | `airflow-dag-processor` | Parse file DAG được mount read-only | **Có** |
+| Cosmos 1.15.1 | Dựng graph task dbt từ manifest của project | **Có** trong image Airflow dùng chung |
 | Redis/broker | Hàng đợi phân tán cho CeleryExecutor | **Không dùng** với LocalExecutor |
 | `airflow-worker` riêng | Celery worker nhận task từ broker | **Không có**; Docker task container của project **không phải** Celery worker |
 | Flower | UI theo dõi Celery workers | **Không có** vì không dùng Celery |
@@ -63,7 +64,7 @@ flowchart LR
     CON --> VOL[Volume<br/>dữ liệu còn sau stop/recreate]
 ```
 
-- **Image** là bản đóng gói bất biến theo lần build. `airflow-platform:...` chứa Airflow/provider dùng chung; `laplaptech-runtime:...` chứa ingestion/dbt riêng; `laplaptech-dashboard:...` chứa Streamlit. Sửa Python/dbt trong runtime cần rebuild image; sửa DAG được bind mount read-only, chờ DAG processor parse.
+- **Image** là bản đóng gói theo lần build. `airflow-platform:...` chứa Airflow, Docker provider và Cosmos. `laplaptech-runtime:...` chứa ingestion/dbt riêng, còn `laplaptech-dashboard:...` chứa Streamlit. Sửa Python/dbt trong runtime cần build và phát hành lại manifest. Sửa DAG Python đã bind mount thì chờ DAG processor parse. [Quy trình phát hành Cosmos](../plans/cosmos.md).
 - **Container** là tiến trình chạy từ image. Airflow/metadata/warehouse là service thường trực khi stack bật. `airflow-init` là one-shot. Container ingest/build/freshness/reconcile chỉ xuất hiện khi task chạy và có `auto_remove='force'`. Container bị xóa **không** xóa volume.
 - **Network**: Airflow control plane và metadata dùng Compose network mặc định. Runtime, dashboard, warehouse kết nối qua `laplaptech-lab`; từ container, warehouse là `warehouse-laplaptech:5432`, không phải `localhost`. Đưa project khác vào network chung cho phép kết nối mạng, còn quyền dữ liệu phụ thuộc user/database; network chung tự nó không phải hàng rào bảo mật.
 - **Volume**: `airflow-metadata` giữ state Airflow; `airflow-logs` giữ task logs; `laplaptech-lab-warehouse` giữ PostgreSQL data; `laplaptech-lab-config` giữ env runtime read-only; `laplaptech-lab-artifacts` giữ report/dbt artifacts. Bind mount DAG lấy source từ repo, khác với named volume dữ liệu. `stop`/`up` giữ volumes; `down -v` có thể xóa dữ liệu nên không dùng để tắt thường ngày.
@@ -92,6 +93,8 @@ flowchart TB
 | Docker Engine và Airflow pool `platform_memory` | Runtime image/requirements, task limits, secrets/config, artifact path |
 | Warehouse PostgreSQL server (nếu phù hợp) | Database, non-superuser role, schema và backup/restore phạm vi project |
 | Platform workspace và quy tắc audit | Network/service đặc thù, on/off, healthchecks và tài liệu chạy của project |
+
+Project dùng Cosmos có thể tái sử dụng cùng image Airflow. Mỗi project cung cấp DAG, manifest, runtime có dbt và adapter của mình, cùng cấu hình kết nối và ngân sách task riêng.
 
 Thứ tự triển khai: (1) xây/test project độc lập; (2) tạo DB/role riêng và kiểm quyền không đọc DB khác; (3) đóng runtime image và mount config/artifacts riêng; (4) thêm DAG vào Airflow, đăng ký task trong `resources.json`, dùng `BudgetDockerOperator`; (5) để DAG **paused** khi service nguồn/project chưa bật; (6) thử một run, xem logs, RAM và đối soát; (7) cập nhật README/AGENTS của **project đó**. [Resource guide](../guides/resources.md#5-thêm-project-tiếp-theo) có lệnh và mẫu cấu hình chi tiết. Đừng copy `network_mode='laplaptech-lab'` hoặc credential LapLapTech nguyên xi vào DAG mới; chọn network theo topology của project.
 
